@@ -53,6 +53,34 @@ object GpuEnablerExample {
       .reduceExtFunc((x: Int, y: Int) => x + y, reduceFunction)
 
     println("Sum of the list is " + output)
+
+    // Approach #1 : Invoke execute from Driver program
+
+    val input=(1 to 10).toArray
+    val results = Array.fill(10)(0)
+    val testCUFunction = new CUDAFunction(
+      "multiplyBy2",
+      Array("this"),
+      Array("3"),
+      ptxURL)
+
+    testCUFunction.execute(n)(n, input, results)
+
+    println("Output of the function is " )
+    results.foreach(println)
+
+    // Approach #2 : Invoke execute in executors 
+
+    val output1 = sc.parallelize(1 to n, 1).mapPartitions( iter => {
+      val arr = iter.toArray
+      val N1 = arr.length
+      val results1 = Array.fill(N1)(0)
+      testCUFunction.execute(N1)(N1, arr, results1)
+      results1.toIterator
+    }).collect()
+
+    println("Output of the function2 is " )
+    output1.foreach(println)
   }
 
 }

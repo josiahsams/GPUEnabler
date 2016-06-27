@@ -48,6 +48,8 @@ abstract class ExternalFunction extends Serializable {
   def inputColumnsOrder(): Seq[String]
 
   def outputColumnsOrder(): Seq[String]
+
+  def execute(N: Int)(args: Any*)
 }
 
 /**
@@ -250,7 +252,7 @@ class CUDAFunction(
   }
 
   def createkernelParameterDesc2(a: Any, cuStream: CUstream):
-        Tuple5[_, _, CUdeviceptr, Pointer, _] = {
+        Tuple5[_, Pointer, CUdeviceptr, Pointer, Int] = {
     val (arr, hptr, devPtr, gptr, sz) = a match {
       case h if h.isInstanceOf[Int] => {
         val arr = Array.fill(1)(a.asInstanceOf[Int])
@@ -305,6 +307,60 @@ class CUDAFunction(
     }
     (arr, hptr, devPtr, gptr, sz)
   }
+
+  /* Function to directly invoke CUDA function from spark program
+   * First argument: Number of element to be processed by GPU; Based on it, GPU dimensions will be 
+   *                 determined.
+   * Second argument: Variable list of arguments to be passed into CUDA function.
+   */
+  def execute(N: Int)(args: Any*): Unit = {
+    val module = GPUSparkEnv.get.cudaManager.cachedLoadModule(Right(ptxmodule))
+    val function = new CUfunction
+    cuModuleGetFunction(function, module, funcName)
+
+    val stream = new cudaStream_t
+    JCuda.cudaStreamCreateWithFlags(stream, JCuda.cudaStreamNonBlocking)
+    val cuStream = new CUstream(stream)
+
+    var listKernParmDesc: Seq[Tuple5[_, Pointer, CUdeviceptr, Pointer, Int]] = null
+    var listDevPtr: List[CUdeviceptr] = null
+    var kp: List[Pointer] = null
+
+    // Create DevicePtr and copy the data from Scala objects to GPU memory and return the pointer references 
+    if (args != null) {
+      listKernParmDesc = args.map { arg =>
+        createkernelParameterDesc2(arg, cuStream)
+      }
+      kp = listKernParmDesc.map(_._4).toList  // gpuPtr
+      listDevPtr = listKernParmDesc.map(_._3).toList  // CUdeviceptr
+    }
+
+    val kernelParameters = Pointer.to(kp: _*)
+    // Start the GPU execution with the populated kernel parameters
+    // launchKernel(function, inputHyIter.numElements, kernelParameters, dimensions, 1, cuStream)
+    launchKernel(function, N, kernelParameters, dimensions, 1, cuStream)
+
+    if (_outputColumnsOrder == null) return
+
+    // Based on the output column fields copy data from GPU to scala objects
+    _outputColumnsOrder.map(column => {
+        val columnIndex = column.toInt - 1
+        val cpuPtr = listKernParmDesc(columnIndex)._2
+        val devPtr = listKernParmDesc(columnIndex)._3
+        val sz = listKernParmDesc(columnIndex)._5
+
+        cuMemcpyDtoHAsync(cpuPtr, devPtr, sz, cuStream)
+    })
+
+    // Free up locally allocated GPU memory
+    listDevPtr.foreach(devPtr => {
+      cuMemFree(devPtr)
+    })
+
+    listDevPtr = List()
+    JCuda.cudaStreamDestroy(stream)
+  }
+
 
   /**
     *  This function is invoked from RDD `compute` function and it load & launches
