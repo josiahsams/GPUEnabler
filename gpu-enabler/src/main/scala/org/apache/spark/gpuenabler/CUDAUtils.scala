@@ -20,9 +20,9 @@ package org.apache.spark.gpuenabler
 import org.apache.spark.util.Utils
 import org.apache.spark.rpc.{RpcCallContext, RpcEndpointRef, RpcEnv, ThreadSafeRpcEndpoint}
 import org.apache.spark.util.RpcUtils
-import org.apache.spark.Logging
+import org.apache.spark.internal.Logging
 import org.apache.spark.rpc.RpcEndpoint
-import org.apache.spark.{SparkEnv, SparkContext}
+import org.apache.spark.{SparkContext, SparkEnv}
 
 object CUDAUtils {
   val sparkUtils = Utils

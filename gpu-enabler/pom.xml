@@ -194,7 +194,7 @@
               <!--includeArtifactIds>JCudaDriver-native,JCudaRuntime-native</includeArtifactIds-->
               <outputDirectory>${project.build.directory}/lib/</outputDirectory>
               <stripVersion>true</stripVersion>
-              <overWrite>true</overWrite>
+              <!--overWrite>true</overWrite-->
             </configuration>
           </execution>
           <execution>
@@ -208,7 +208,7 @@
               <!--includeArtifactIds>JCudaDriver-native,JCudaRuntime-native</includeArtifactIds-->
               <outputDirectory>${project.build.directory}/lib/</outputDirectory>
               <stripVersion>true</stripVersion>
-              <overWrite>true</overWrite>
+              <!--overWrite>true</overWrite-->
             </configuration>
           </execution>
           <execution>

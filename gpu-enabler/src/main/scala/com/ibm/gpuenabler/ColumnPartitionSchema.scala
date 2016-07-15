@@ -259,7 +259,7 @@ private[gpuenabler] class ColumnSchema(
       in.readObject().asInstanceOf[Vector[(String, String)]].map { case (clsName, propName) =>
         val cls = CUDAUtils.sparkUtils.classForName(clsName)
         val typeSig = mirror.classSymbol(cls).typeSignature
-        typeSig.declaration(universe.stringToTermName(propName)).asTerm
+        typeSig.declaration(universe.TermName(propName)).asTerm
         // typeSig.decl(universe.TermName(propName)).asTerm // Scala_2.11
       }
   }
