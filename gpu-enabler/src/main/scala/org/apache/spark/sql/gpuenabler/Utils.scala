@@ -8,13 +8,16 @@ import org.apache.spark.sql.{Column, Dataset, Encoder, SQLContext}
   * Created by joe on 15/7/16.
   */
 object Utils {
-
+/*
   type _Dataset[T] = Dataset[T]
 
   def _Dataset[T: Encoder](sqc: _SQLContext, lp: LogicalPlan) = {
     Dataset[T](sqc, lp)
   }
+*/
   type _SQLContext = SQLContext
+
+  def getLogicalPlan[T: Encoder](ds: Dataset[T]) = ds.logicalPlan
 
   def get_resolvedTEncoder[T: Encoder](ds: Dataset[T]): ExpressionEncoder[T] =
     ds.resolvedTEncoder
@@ -23,13 +26,16 @@ object Utils {
 
   def getAttributes(schema : org.apache.spark.sql.types.StructType) = schema.toAttributes
 
-  type phy_UnaryNode = org.apache.spark.sql.execution.UnaryNode
+  // type phy_UnaryNode = org.apache.spark.sql.execution.UnaryNode
+  type phy_UnaryNode = org.apache.spark.sql.execution.UnaryExecNode
 
   type log_UnaryNode = org.apache.spark.sql.catalyst.plans.logical.UnaryNode
 
   type phy_ObjectOperator = org.apache.spark.sql.execution.ObjectOperator
 
-  type log_ObjectOperator = org.apache.spark.sql.catalyst.plans.logical.ObjectOperator
+  // type log_ObjectOperator = org.apache.spark.sql.catalyst.plans.logical.ObjectOperator
+  type log_ObjectProducer = org.apache.spark.sql.catalyst.plans.logical.ObjectProducer
+  type log_ObjectConsumer = org.apache.spark.sql.catalyst.plans.logical.ObjectConsumer
 
   def getplanner(sqlContext: SQLContext) = sqlContext.sessionState.planner
 

@@ -1,4 +1,4 @@
-package scala.com.ibm.gpuenabler
+package com.ibm.gpuenabler
 
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.Column
@@ -6,11 +6,13 @@ import org.apache.spark.sql.catalyst.expressions.{Literal, PrettyAttribute}
 import org.apache.spark.sql.types.DoubleType
 import org.apache.spark.{SparkConf, SparkContext}
 import com.ibm.gpuenabler.CUDADSImplicits._
+import com.ibm.gpuenabler.CUDAFunction
+import com.ibm.gpuenabler.GpuEnablerExample.{getClass => _, _}
 
 /**
   * Created by joe on 15/7/16.
   */
-case class Person(name: String, age: Long, count: Long)
+case class Person(name: Long, age: Long, count: Long)
 
 object GpuEnablerDS {
 
@@ -23,11 +25,16 @@ object GpuEnablerDS {
     val sqlContext = new org.apache.spark.sql.SQLContext(sc)
     import sqlContext.implicits._
 
-    val ds = sqlContext.read.json("examples/src/main/resources/people.json").as[Person]
-    ds.mapExtFunc(Seq(ds("age"),ds("count")), (x:Person) => x.age).show()
+    val ptxURL = this.getClass.getResource("/GpuEnablerExamples.ptx")
+    val mapFunction = new CUDAFunction(
+      "multiplylongBy2",
+      Array("this.age"),
+      Array("this"),
+      ptxURL)
 
-    ds.map2(Seq(ds("age"),ds("count")),Seq(PrettyAttribute("newCol1", DoubleType),
-      PrettyAttribute("newCol2", DoubleType), PrettyAttribute("age", DoubleType))).show()
+
+    val ds = sqlContext.read.json("src/main/resources/people.json").as[Person]
+    ds.mapExtFunc((x:Person) => x.age, mapFunction ).show()
 
     println(" ======= ")
     ds.map((x:Person) => x.age).show()

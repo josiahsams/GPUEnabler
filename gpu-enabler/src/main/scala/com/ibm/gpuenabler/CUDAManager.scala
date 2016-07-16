@@ -39,8 +39,10 @@ private[gpuenabler] class CUDAManager {
   // This is supposed to be called before ANY other JCuda* call to ensure we have properly loaded
   // native jCuda library and cuda context
   try {
-    JCudaDriver.setExceptionsEnabled(true)
-    JCudaDriver.cuInit(0)
+    // For laptop Testing - Remove it during checkin
+    // JCudaDriver.setExceptionsEnabled(true)
+
+    // JCudaDriver.cuInit(0)
   } catch {
     case ex: UnsatisfiedLinkError =>
       throw new SparkException("Could not initialize CUDA, because native jCuda libraries were " +

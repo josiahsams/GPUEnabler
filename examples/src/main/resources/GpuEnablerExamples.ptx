@@ -149,6 +149,43 @@ BB6_2:
 	ret;
 }
 
+	// .globl	multiplylongBy2
+.visible .entry multiplylongBy2(
+	.param .u64 multiplylongBy2_param_0,
+	.param .u64 multiplylongBy2_param_1,
+	.param .u64 multiplylongBy2_param_2
+)
+{
+	.reg .pred 	%p<2>;
+	.reg .b32 	%r<6>;
+	.reg .b64 	%rd<12>;
+
+
+	ld.param.u64 	%rd3, [multiplylongBy2_param_0];
+	ld.param.u64 	%rd1, [multiplylongBy2_param_1];
+	ld.param.u64 	%rd2, [multiplylongBy2_param_2];
+	cvta.to.global.u64 	%rd4, %rd3;
+	mov.u32 	%r2, %ntid.x;
+	mov.u32 	%r3, %ctaid.x;
+	mov.u32 	%r4, %tid.x;
+	mad.lo.s32 	%r1, %r2, %r3, %r4;
+	ld.global.u32 	%r5, [%rd4];
+	setp.ge.s32	%p1, %r1, %r5;
+	@%p1 bra 	BB7_2;
+
+	cvta.to.global.u64 	%rd5, %rd1;
+	mul.wide.s32 	%rd6, %r1, 8;
+	add.s64 	%rd7, %rd5, %rd6;
+	ld.global.u64 	%rd8, [%rd7];
+	shl.b64 	%rd9, %rd8, 1;
+	cvta.to.global.u64 	%rd10, %rd2;
+	add.s64 	%rd11, %rd10, %rd6;
+	st.global.u64 	[%rd11], %rd9;
+
+BB7_2:
+	ret;
+}
+
 	// .globl	sum
 .visible .entry sum(
 	.param .u64 sum_param_0,
@@ -178,10 +215,10 @@ BB6_2:
 	cvta.to.global.u64 	%rd21, %rd18;
 	ld.global.u32 	%r13, [%rd21];
 	setp.eq.s32	%p1, %r13, 0;
-	@%p1 bra 	BB7_5;
+	@%p1 bra 	BB8_5;
 
 	setp.ne.s64	%p2, %rd3, 0;
-	@%p2 bra 	BB7_12;
+	@%p2 bra 	BB8_12;
 
 	ld.global.s32 	%rd23, [%rd2];
 	setp.lt.s64	%p3, %rd23, 16384;
@@ -190,32 +227,32 @@ BB6_2:
 	mov.u32 	%r25, %r24;
 	mov.u64 	%rd40, 0;
 	setp.lt.s64	%p4, %rd4, 1;
-	@%p4 bra 	BB7_4;
+	@%p4 bra 	BB8_4;
 
-BB7_3:
+BB8_3:
 	ld.global.u32 	%r16, [%rd39];
 	add.s32 	%r25, %r16, %r25;
 	add.s64 	%rd39, %rd39, 4;
 	add.s64 	%rd40, %rd40, 1;
 	setp.lt.s64	%p5, %rd40, %rd4;
 	mov.u32 	%r24, %r25;
-	@%p5 bra 	BB7_3;
+	@%p5 bra 	BB8_3;
 
-BB7_4:
+BB8_4:
 	cvta.to.global.u64 	%rd24, %rd15;
 	st.global.u32 	[%rd24], %r24;
-	bra.uni 	BB7_12;
+	bra.uni 	BB8_12;
 
-BB7_5:
+BB8_5:
 	ld.global.u32 	%r26, [%rd2];
 	cvt.s64.s32	%rd25, %r26;
 	setp.ge.s64	%p6, %rd3, %rd25;
-	@%p6 bra 	BB7_12;
+	@%p6 bra 	BB8_12;
 
 	mov.u32 	%r17, %nctaid.x;
 	mul.lo.s32 	%r18, %r17, %r3;
 	setp.eq.s32	%p7, %r18, 16384;
-	@%p7 bra 	BB7_8;
+	@%p7 bra 	BB8_8;
 
 	mov.u64 	%rd26, $str;
 	cvta.global.u64 	%rd27, %rd26;
@@ -223,7 +260,7 @@ BB7_5:
 	cvta.global.u64 	%rd29, %rd28;
 	mov.u64 	%rd30, __T20;
 	cvta.global.u64 	%rd31, %rd30;
-	mov.u32 	%r19, 21;
+	mov.u32 	%r19, 30;
 	mov.u64 	%rd32, 1;
 	// Callseq Start 0
 	{
@@ -253,11 +290,11 @@ BB7_5:
 	}// Callseq End 0
 	ld.global.u32 	%r26, [%rd2];
 
-BB7_8:
+BB8_8:
 	cvt.s64.s32	%rd9, %r26;
 	mov.u32 	%r27, 0;
 	setp.ge.s64	%p8, %rd3, %rd9;
-	@%p8 bra 	BB7_11;
+	@%p8 bra 	BB8_11;
 
 	add.s64 	%rd35, %rd20, %rd19;
 	shl.b64 	%rd36, %rd35, 2;
@@ -265,7 +302,7 @@ BB7_8:
 	mov.u32 	%r27, 0;
 	mov.u64 	%rd42, %rd3;
 
-BB7_10:
+BB8_10:
 	mov.u64 	%rd12, %rd42;
 	ld.global.u32 	%r22, [%rd41];
 	add.s32 	%r27, %r22, %r27;
@@ -273,14 +310,14 @@ BB7_10:
 	add.s64 	%rd14, %rd12, 16384;
 	setp.lt.s64	%p9, %rd14, %rd9;
 	mov.u64 	%rd42, %rd14;
-	@%p9 bra 	BB7_10;
+	@%p9 bra 	BB8_10;
 
-BB7_11:
+BB8_11:
 	shl.b64 	%rd37, %rd3, 2;
 	add.s64 	%rd38, %rd39, %rd37;
 	st.global.u32 	[%rd38], %r27;
 
-BB7_12:
+BB8_12:
 	ret;
 }
 
@@ -308,32 +345,32 @@ BB7_12:
 	neg.s64 	%rd13, %rd11;
 	mul.lo.s64 	%rd14, %rd12, %rd13;
 	setp.ne.s64	%p1, %rd10, %rd14;
-	@%p1 bra 	BB8_5;
+	@%p1 bra 	BB9_5;
 
 	cvta.to.global.u64 	%rd15, %rd7;
 	ld.global.u32 	%r1, [%rd15];
 	mov.u32 	%r11, 0;
 	setp.lt.s32	%p2, %r1, 1;
-	@%p2 bra 	BB8_4;
+	@%p2 bra 	BB9_4;
 
 	cvta.to.global.u64 	%rd18, %rd8;
 	cvt.s64.s32	%rd2, %r1;
 	mov.u32 	%r11, 0;
 	mov.u64 	%rd19, 0;
 
-BB8_3:
+BB9_3:
 	ld.global.u32 	%r10, [%rd18];
 	add.s32 	%r11, %r10, %r11;
 	add.s64 	%rd18, %rd18, 4;
 	add.s64 	%rd19, %rd19, 1;
 	setp.lt.s64	%p3, %rd19, %rd2;
-	@%p3 bra 	BB8_3;
+	@%p3 bra 	BB9_3;
 
-BB8_4:
+BB9_4:
 	cvta.to.global.u64 	%rd17, %rd9;
 	st.global.u32 	[%rd17], %r11;
 
-BB8_5:
+BB9_5:
 	ret;
 }
 

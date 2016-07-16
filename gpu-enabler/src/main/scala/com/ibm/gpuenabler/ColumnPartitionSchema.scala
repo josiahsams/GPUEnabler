@@ -47,6 +47,99 @@ private[gpuenabler] object ColumnPartitionSchema {
 
   var onlyLoadableClassesSupported: Boolean = false
 
+
+  def getschema(runClass: Class[_]): ColumnPartitionSchema = {
+    def columnsFor(tpe: Type): IndexedSeq[ColumnSchema] = {
+      tpe match {
+        // 8-bit signed BE
+        case t if t <:< typeOf[Byte] => Vector(new ColumnSchema(BYTE_COLUMN))
+        // 16-bit signed BE
+        case t if t <:< typeOf[Short] => Vector(new ColumnSchema(SHORT_COLUMN))
+        // 32-bit signed BE
+        case t if t <:< typeOf[Int] => Vector(new ColumnSchema(INT_COLUMN))
+        // 64-bit signed BE
+        case t if t <:< typeOf[Long] => Vector(new ColumnSchema(LONG_COLUMN))
+        // 32-bit single-precision IEEE 754 floating point
+        case t if t <:< typeOf[Float] => Vector(new ColumnSchema(FLOAT_COLUMN))
+        // 64-bit double-precision IEEE 754 floating point
+        case t if t <:< typeOf[Double] => Vector(new ColumnSchema(DOUBLE_COLUMN))
+        // array of 8-bit signed BE
+        case t if t <:< typeOf[Array[Byte]] => Vector(new ColumnSchema(BYTE_ARRAY_COLUMN))
+        // array of 16-bit signed BE
+        case t if t <:< typeOf[Array[Short]] => Vector(new ColumnSchema(SHORT_ARRAY_COLUMN))
+        // array of 32-bit signed BE
+        case t if t <:< typeOf[Array[Int]] => Vector(new ColumnSchema(INT_ARRAY_COLUMN))
+        // array of 64-bit signed BE
+        case t if t <:< typeOf[Array[Long]] => Vector(new ColumnSchema(LONG_ARRAY_COLUMN))
+        // array of 32-bit single-precision IEEE 754 floating point
+        case t if t <:< typeOf[Array[Float]] => Vector(new ColumnSchema(FLOAT_ARRAY_COLUMN))
+        // array of 64-bit double-precision IEEE 754 floating point
+        case t if t <:< typeOf[Array[Double]] => Vector(new ColumnSchema(DOUBLE_ARRAY_COLUMN))
+        // TODO boolean - note that in JVM specification it does not have specified size
+        // TODO char - note that it's different that C char*, it's more like short*?
+        // TODO string - along with special storage space in separate place - it's enough to point
+        // offset of start of current string in some big blob with concatenated strings
+        // TODO option
+        // TODO protection from cycles
+        // TODO caching schemas for classes
+        // TODO make it work with nested classes
+        // TODO objects that contains null object property
+        // TODO objects with internal objects without vals/vars will end up with null fields here
+        // Generic object
+        case t if !onlyLoadableClassesSupported ||
+          CUDAUtils.sparkUtils.classIsLoadable(t.typeSymbol.asClass.fullName) => {
+          val valVarMembers = t.members.view
+            .filter(p => !p.isMethod && p.isTerm).map(_.asTerm)
+            .filter(p => p.isVar || p.isVal)
+
+          valVarMembers.foreach { p =>
+            // TODO more checks
+            // is final okay?
+            if (p.isStatic) throw new UnsupportedOperationException(
+              s"Column schema with static field ${p.fullName} not supported")
+          }
+
+          valVarMembers.flatMap { term =>
+            columnsFor(term.typeSignature).map { schema =>
+              new ColumnSchema(
+                schema.columnType,
+                term +: schema.terms)
+            }
+          } .toIndexedSeq
+        }
+        case other =>
+          throw new UnsupportedOperationException(s"Column schema for type $other not supported")
+      }
+    }
+
+    // val runtimeCls = implicitly[ClassTag[T]].runtimeClass
+    val runtimeCls = runClass
+    val columns = runtimeCls match {
+      // special case for primitives, since their type signature shows up as AnyVal instead
+      case c if c == classOf[Byte] => Vector(new ColumnSchema(BYTE_COLUMN))
+      case c if c == classOf[Short] => Vector(new ColumnSchema(SHORT_COLUMN))
+      case c if c == classOf[Int] => Vector(new ColumnSchema(INT_COLUMN))
+      case c if c == classOf[Long] => Vector(new ColumnSchema(LONG_COLUMN))
+      case c if c == classOf[Float] => Vector(new ColumnSchema(FLOAT_COLUMN))
+      case c if c == classOf[Double] => Vector(new ColumnSchema(DOUBLE_COLUMN))
+      // special case for primitive arrays
+      case c if c == classOf[Array[Byte]] => Vector(new ColumnSchema(BYTE_ARRAY_COLUMN))
+      case c if c == classOf[Array[Short]] => Vector(new ColumnSchema(SHORT_ARRAY_COLUMN))
+      case c if c == classOf[Array[Int]] => Vector(new ColumnSchema(INT_ARRAY_COLUMN))
+      case c if c == classOf[Array[Long]] => Vector(new ColumnSchema(LONG_ARRAY_COLUMN))
+      case c if c == classOf[Array[Float]] => Vector(new ColumnSchema(FLOAT_ARRAY_COLUMN))
+      case c if c == classOf[Array[Double]] => Vector(new ColumnSchema(DOUBLE_ARRAY_COLUMN))
+      // generic case for other objects
+      case _ =>
+        val clsSymbol = mirror.classSymbol(runtimeCls)
+        columnsFor(clsSymbol.typeSignature)
+    }
+
+    new ColumnPartitionSchema(columns.toArray, runtimeCls)
+  }
+
+
+
   def schemaFor[T: ClassTag]: ColumnPartitionSchema = {
 
     def columnsFor(tpe: Type): IndexedSeq[ColumnSchema] = {
@@ -137,6 +230,8 @@ private[gpuenabler] object ColumnPartitionSchema {
 
     new ColumnPartitionSchema(columns.toArray, runtimeCls)
   }
+
+
 
 }
 
@@ -259,7 +354,7 @@ private[gpuenabler] class ColumnSchema(
       in.readObject().asInstanceOf[Vector[(String, String)]].map { case (clsName, propName) =>
         val cls = CUDAUtils.sparkUtils.classForName(clsName)
         val typeSig = mirror.classSymbol(cls).typeSignature
-        typeSig.declaration(universe.TermName(propName)).asTerm
+        typeSig.decl(universe.TermName(propName)).asTerm
         // typeSig.decl(universe.TermName(propName)).asTerm // Scala_2.11
       }
   }

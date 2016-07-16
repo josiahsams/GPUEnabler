@@ -113,6 +113,56 @@ private[gpuenabler] class MapGPUPartitionsRDD[U: ClassTag, T: ClassTag](
   }
 }
 
+private[gpuenabler] class MapDSGPUPartitionsRDD[U: ClassTag, T: ClassTag](
+      prev: RDD[T],
+      f: (TaskContext, Int, Iterator[Any]) => Iterator[Any], // (TaskContext, partition index, iterator)
+      tClassTag: Class[_],
+      uClassTag: Class[_],
+      kernel : ExternalFunction = null,
+      preservesPartitioning: Boolean = false,
+      outputArraySizes: Seq[Int] = null,
+      inputFreeVariables: Seq[Any] = null)
+  extends RDD[U](prev) {
+
+  override val partitioner = if (preservesPartitioning) firstParent[T].partitioner else None
+
+  override def getPartitions: Array[Partition] = firstParent[T].partitions
+
+  // private val inputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.schemaFor[T]
+  // private val outputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.schemaFor[U]
+
+  private val inputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.getschema(tClassTag)
+  private val outputColSchema: ColumnPartitionSchema = ColumnPartitionSchema.getschema(uClassTag)
+
+  override def compute(split: Partition, context: TaskContext): Iterator[U] = {
+    // Use the block ID of this particular (rdd, partition)
+    val blockId = RDDBlockId(this.id, split.index)
+
+    // Handle empty partitions.
+    if (firstParent[T].iterator(split, context).length <= 0)
+      return new Array[U](0).toIterator
+
+    val inputHyIter = firstParent[T].iterator(split, context) match {
+      case hyIter: HybridIterator[T] => {
+        hyIter
+      }
+      case iter: Iterator[T] => {
+        // println("Converting Regular Iterator to hybridIterator")
+        val parentBlockId = RDDBlockId(firstParent[T].id, split.index)
+        val hyIter = new HybridIterator[T](iter.toArray, inputColSchema,
+          kernel.inputColumnsOrder, Some(parentBlockId))
+        hyIter
+      }
+    }
+
+    val resultIter = kernel.compute[U, T](inputHyIter,
+      Seq(inputColSchema, outputColSchema), None,
+      outputArraySizes, inputFreeVariables, Some(blockId))
+
+    resultIter
+  }
+}
+
 /**
   * An RDD that convert partition's iterator to a format supported by GPU computation
   * to every partition of the parent RDD.
@@ -277,6 +327,17 @@ object CUDARDDImplicits {
       import org.apache.spark.gpuenabler.CUDAUtils
       val cleanF = CUDAUtils.cleanFn(sc, f) // sc.clean(f)
       new MapGPUPartitionsRDD[U, T](rdd, (context, pid, iter) => iter.map(cleanF),
+        extfunc, outputArraySizes = outputArraySizes, inputFreeVariables = inputFreeVariables)
+    }
+
+    def mapDSExtFunc(f: Any => Any, extfunc: ExternalFunction,
+                                  tClassTag: Class[_],
+                                  uClassTag: Class[_],
+                                outputArraySizes: Seq[Int] = null,
+                                inputFreeVariables: Seq[Any] = null): RDD[Any] = {
+      import org.apache.spark.gpuenabler.CUDAUtils
+      val cleanF = CUDAUtils.cleanFn(sc, f) // sc.clean(f)
+      new MapDSGPUPartitionsRDD(rdd, (context, pid, iter) => iter.map(cleanF), tClassTag, uClassTag,
         extfunc, outputArraySizes = outputArraySizes, inputFreeVariables = inputFreeVariables)
     }
 

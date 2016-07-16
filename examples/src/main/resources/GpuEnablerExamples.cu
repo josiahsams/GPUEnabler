@@ -9,6 +9,15 @@ __global__ void multiplyBy2(int *size, int *in, int *out) {
     }
 }
 
+extern "C"
+// another simple test kernel
+__global__ void multiplylongBy2(int *size, long *in, long *out) {
+    const int ix = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (ix < *size) {
+        out[ix] = in[ix] * 2;
+    }
+}
 
 extern "C"
 // test reduce kernel that sums elements
