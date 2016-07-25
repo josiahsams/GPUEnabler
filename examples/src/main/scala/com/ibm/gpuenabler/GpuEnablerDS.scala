@@ -2,11 +2,9 @@ package com.ibm.gpuenabler
 
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.Column
-import org.apache.spark.sql.catalyst.expressions.{Literal, PrettyAttribute}
-import org.apache.spark.sql.types.DoubleType
+import org.apache.spark.sql.catalyst.expressions.{Literal}
 import org.apache.spark.{SparkConf, SparkContext}
 import com.ibm.gpuenabler.CUDADSImplicits._
-import com.ibm.gpuenabler.CUDAFunction
 import com.ibm.gpuenabler.GpuEnablerExample.{getClass => _, _}
 
 /**

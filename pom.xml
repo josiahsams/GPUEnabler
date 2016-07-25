@@ -65,7 +65,7 @@
   <dependencies>
     <dependency>
       <groupId>org.apache.spark</groupId>
-      <artifactId>spark-core_2.11</artifactId>
+      <artifactId>spark-core_${scala.binary.version}</artifactId>
       <version>2.0.0-preview</version>
         <exclusions>
             <exclusion>
@@ -87,7 +87,7 @@
     </dependency>
     <dependency>
           <groupId>org.apache.spark</groupId>
-          <artifactId>spark-sql_2.11</artifactId>
+          <artifactId>spark-sql_${scala.binary.version}</artifactId>
           <version>2.0.0-preview</version>
     </dependency>
 
@@ -104,14 +104,14 @@
     </dependency>
     <dependency>
       <groupId>org.scalatest</groupId>
-      <artifactId>scalatest_2.11</artifactId>
+      <artifactId>scalatest_${scala.binary.version}</artifactId>
       <version>2.2.6</version>
       <scope>test</scope>
         <exclusions>
             <exclusion>
                 <!-- make sure wrong scala version is not pulled in -->
                 <groupId>org.scala-lang.modules</groupId>
-                <artifactId>scala-xml_2.11</artifactId>
+                <artifactId>scala-xml_${scala.binary.version}</artifactId>
             </exclusion>
         </exclusions>
 
