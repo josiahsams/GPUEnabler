@@ -55,6 +55,7 @@ private[gpuenabler] object GPUSparkEnv extends _Logging {
   private var oldSparkEnv : SparkEnv = _
 
   def initalize(): Unit = {
+	println("JOE .. GPUSparkEnv new created")
       env = new GPUSparkEnv()
   }
 

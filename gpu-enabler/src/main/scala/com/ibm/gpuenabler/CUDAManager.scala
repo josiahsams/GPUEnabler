@@ -21,10 +21,12 @@ import java.net.URL
 
 import jcuda.Pointer
 import jcuda.driver.JCudaDriver._
+import jcuda.driver._
 import jcuda.driver.{CUdeviceptr, CUmodule, JCudaDriver}
 import jcuda.runtime.JCuda
 import org.apache.commons.io.IOUtils
 import org.apache.spark.SparkException
+import org.apache.spark.SparkEnv
 import org.slf4j.{Logger, LoggerFactory}
 
 import scala.collection.mutable.HashMap
@@ -38,9 +40,27 @@ private[gpuenabler] class CUDAManager {
   // Initialization
   // This is supposed to be called before ANY other JCuda* call to ensure we have properly loaded
   // native jCuda library and cuda context
+  val executorId = SparkEnv.get.executorId  match {
+    case "driver" => 0
+    case _ => SparkEnv.get.executorId.toInt
+  }
+
   try {
     JCudaDriver.setExceptionsEnabled(true)
     JCudaDriver.cuInit(0)
+	
+    val count = new Array[Int](1)
+    cuDeviceGetCount(count)
+
+	println("JOE .. JCudaDriver.cuInit called " + executorId + " count : " + count(0));
+
+	JCuda.cudaSetDevice(executorId % 4)
+
+    //val device = new CUdevice()
+    //cuDeviceGet(device, executorId % 4)
+    //val context = new CUcontext()
+    //cuCtxCreate(context, 0, device);
+
   } catch {
     case ex: UnsatisfiedLinkError =>
       throw new SparkException("Could not initialize CUDA, because native jCuda libraries were " +
@@ -71,6 +91,9 @@ private[gpuenabler] class CUDAManager {
 
     val devIx = new Array[Int](1)
     JCuda.cudaGetDevice(devIx)
+
+	println("JOE .. cachedLoadModule inside Exec: " + executorId.toInt + " DevID : " + devIx(0))
+
     synchronized {
       // Since multiple modules cannot be loaded into one context in runtime API,
       //   we use singleton cache http://stackoverflow.com/questions/32502375/
@@ -78,7 +101,7 @@ private[gpuenabler] class CUDAManager {
       // TODO support loading multiple ptxs
       //   http://stackoverflow.com/questions/32535828/jit-in-jcuda-loading-multiple-ptx-modules
       CUDAManagerCachedModule.getInstance.getOrElseUpdate((key, devIx(0)), {
-    // println(" MODULE LOAD ")
+         println(" MODULE LOAD ")
         // TODO maybe unload the module if it won't be needed later
         var moduleBinaryData: Array[Byte] = null
         if (resourceURL != null) {
@@ -104,6 +127,7 @@ private[gpuenabler] class CUDAManager {
       import jcuda.driver.{CUdevice, CUdevice_attribute}
       val dev = new CUdevice
       JCudaDriver.cuCtxGetDevice(dev)
+
       val dim = new Array[Int](1)
       JCudaDriver.cuDeviceGetAttribute(dim, CUdevice_attribute.CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X,
         dev)

@@ -333,7 +333,9 @@ class CUDAFunction(
                                         blockId: Option[BlockId] = None): Iterator[U] = {
     val module = GPUSparkEnv.get.cudaManager.cachedLoadModule(Right(ptxmodule))
     val function = new CUfunction
+    println("JOE cuModuleGetFunction : " + funcName)
     cuModuleGetFunction(function, module, funcName)
+	println("JOE cuModuleGetFunction success")
 
     val stream = new cudaStream_t
     JCuda.cudaStreamCreateWithFlags(stream, JCuda.cudaStreamNonBlocking)
