@@ -210,6 +210,9 @@ class CUDAFunction(
   implicit def toScalaFunction(fun: JFunction2[Long, Int, Tuple2[Int,Int]]): (Long, Int) => 
     Tuple2[Int,Int] = (x, y) => fun.call(x, y)
 
+  import org.apache.spark.SparkEnv
+  private val logLevel = SparkEnv.get.conf.getInt("logLevel", 0)
+
   def inputColumnsOrder: Seq[String] = _inputColumnsOrder
   def outputColumnsOrder: Seq[String] = _outputColumnsOrder
 
@@ -335,6 +338,7 @@ class CUDAFunction(
     val function = new CUfunction
     cuModuleGetFunction(function, module, funcName)
 
+    if (logLevel == 1) println(s"Invoke Kernel ${funcName}")
     val stream = new cudaStream_t
     JCuda.cudaStreamCreateWithFlags(stream, JCuda.cudaStreamNonBlocking)
     val cuStream = new CUstream(stream)
@@ -346,7 +350,7 @@ class CUDAFunction(
 
     // Ensure the GPU is loaded with the same data in memory
     inputHyIter.copyCpuToGpu
-
+    if (logLevel == 1) println("Alloc & Load Data into GPU Memory")
     var listDevPtr: List[CUdeviceptr] = null
 
     // hardcoded first argument
@@ -387,12 +391,13 @@ class CUDAFunction(
       listDevPtr = listDevPtr ++ inputConstPtrs.map(_._3) // CUdeviceptr
     }
 
+    val now = System.nanoTime
     stagesCount match {
       // normal launch, no stages, suitable for map
 
       case None =>
         val kernelParameters = Pointer.to(kp: _*)
-        // Start the GPU execution with the populated kernel parameters
+        // Start the GPU execution with the populated kernel paramters
         launchKernel(function, inputHyIter.numElements, kernelParameters, dimensions, 1, cuStream)
 
       // launch kernel multiple times (multiple stages), suitable for reduce
@@ -422,22 +427,23 @@ class CUDAFunction(
           // val kernelParameters = Pointer.to(params: _*)
           val kernelParameters = Pointer.to(kp: _*)
 
-          // Start the GPU execution with the populated kernel parameters
+          // Start the GPU execution with the populated kernel paramters
           launchKernel(function, inputHyIter.numElements, kernelParameters, dimensions, stageNumber, cuStream)
         }
     }
+    val ms = (System.nanoTime - now) / 1000000
 
     // Free up locally allocated GPU memory
     listDevPtr.foreach(devPtr => {
       cuMemFree(devPtr)
     })
     listDevPtr = List()
-
-    outputHyIter.freeGPUMemory
+    if (logLevel == 1) println("Load Results to CPU Memory")
+    outputHyIter.freeGPUMemory   
     inputHyIter.freeGPUMemory
-
+    if (logLevel == 1) println("Free GPU Memory")
     JCuda.cudaStreamDestroy(stream)
-
+    if (logLevel == 1) { println(s"Execution Complete for Kernel ${funcName} in ${ms} millisecs."); println(); }
     outputHyIter.asInstanceOf[Iterator[U]]
   }
 }

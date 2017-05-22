@@ -37,8 +37,17 @@ if [[ ! $EXAMPLE_CLASS == com.ibm.gpuenabler* ]]; then
   EXAMPLE_CLASS="com.ibm.gpuenabler.$EXAMPLE_CLASS"
 fi
 
-echo "Executing : mvn -q scala:run -DmainClass=$EXAMPLE_CLASS -DaddArgs=\"$EXAMPLE_MASTER\""
+${SPARK_HOME?"Need to set SPARK_HOME env"} 2>/dev/null
 
 cd $EXAMPLES_DIR
 
-mvn -q scala:run -DmainClass=$EXAMPLE_CLASS -DaddArgs="$EXAMPLE_MASTER"
+# echo "Executing : mvn -q scala:run -DmainClass=$EXAMPLE_CLASS -DaddArgs=\"$EXAMPLE_MASTER\""
+# mvn -q scala:run -DmainClass=$EXAMPLE_CLASS -DaddArgs="$EXAMPLE_MASTER"
+
+echo "Executing : spark-submit --master $EXAMPLE_MASTER --class $EXAMPLE_CLASS ... $EXAMPLE_MASTER $*"
+
+${SPARK_HOME}/bin/spark-submit  						\
+          --master $EXAMPLE_MASTER  						\
+          --class $EXAMPLE_CLASS  						\
+          --jars ~/GPUEnabler/gpu-enabler/target/gpu-enabler_2.11-1.0.0.jar   	\
+    ~/GPUEnabler/examples/target/gpu-enabler-examples_2.11-1.0.0.jar $EXAMPLE_MASTER $* 

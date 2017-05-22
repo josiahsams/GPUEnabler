@@ -44,6 +44,9 @@ private[gpuenabler] class CUDAManager {
     JCudaDriver.setExceptionsEnabled(true)
     JCudaDriver.cuInit(0)
     isGPUEnabled = true
+import org.apache.spark.SparkEnv
+val logLevel = SparkEnv.get.conf.getInt("logLevel", 0)
+if (logLevel == 1) println("CUDA initialization Done")
   } catch {
     case ex: UnsatisfiedLinkError => 
       CUDAManager.logger.info("Could not initialize CUDA, because native jCuda libraries were " +
@@ -104,6 +107,9 @@ private[gpuenabler] class CUDAManager {
         val module = new CUmodule
         JCudaDriver.cuModuleLoadData(module, moduleBinaryData0)
 	CUDAManagerCachedModule.getInstance.put((key, devIx(0)), module)
+         import org.apache.spark.SparkEnv
+         val logLevel = SparkEnv.get.conf.getInt("logLevel", 0)
+         if (logLevel == 1) println(s"MODULE LOADED: $key on GPU(${devIx(0)})")
         module
       })
     }
