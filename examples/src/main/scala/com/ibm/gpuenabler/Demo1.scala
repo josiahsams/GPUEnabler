@@ -22,7 +22,7 @@ object Demo1 {
     val ptxURL = this.getClass.getResource("/GpuEnablerExamples.ptx")
     val ptxURL1 = "/GpuEnablerExamples.ptx"
     val mapFunction = new CUDAFunction(
-      "multiplyBy2",
+      "multiplyBy2l",
       Array("this"),
       Array("this"),
       ptxURL)
