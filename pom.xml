@@ -20,9 +20,6 @@
   <profiles>
     <profile>
       <id>jcuda70a</id>
-      <activation>
-        <activeByDefault>true</activeByDefault>
-      </activation>
       <properties>
         <jcuda.version>0.7.0a</jcuda.version>
       </properties>
@@ -31,6 +28,15 @@
       <id>jcuda75</id>
       <properties>
         <jcuda.version>0.7.5</jcuda.version>
+      </properties>
+    </profile>
+    <profile>
+      <id>jcuda80</id>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+      </activation>
+      <properties>
+        <jcuda.version>0.8.0</jcuda.version>
       </properties>
     </profile>
   </profiles>

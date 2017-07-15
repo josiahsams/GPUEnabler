@@ -119,7 +119,7 @@
           <artifactSet>
             <includes>
               <include>org.mystic:mavenized-jcuda</include>
-              <include>jcuda:**</include>
+              <include>jcuda:*:**</include>
             </includes>
             <excludes>
               <exclude>jcuda:*:so:*</exclude>

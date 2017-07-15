@@ -52,6 +52,11 @@
   </pluginRepositories>
 
   <dependencies>
+    <!--dependency>
+      <groupId>org.jcuda</groupId>
+      <artifactId>jcublas</artifactId>
+      <version>0.8.0</version>
+    </dependency -->
     <dependency>
       <groupId>com.ibm</groupId>
       <artifactId>gpu-enabler_2.11</artifactId>
@@ -109,6 +114,50 @@
           </execution>
         </executions>
       </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>2.10</version>
+        <executions>
+          <execution>
+            <id>copy-dependencies</id>
+            <phase>prepare-package</phase>
+            <goals>
+              <goal>copy-dependencies</goal>
+            </goals>
+            <configuration>
+              <includeArtifactIds>jcublas</includeArtifactIds>
+              <outputDirectory>${project.build.directory}/lib/</outputDirectory>
+              <stripVersion>true</stripVersion>
+              <overWrite>true</overWrite>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+     <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>2.4.3</version>
+        <configuration>
+          <shadedArtifactAttached>false</shadedArtifactAttached>
+          <artifactSet>
+          <includes>
+            <!--include>org.jcuda:jcublas:**</include -->
+            <include>com.ibm:gpu-enabler_2.11</include>
+          </includes>
+          </artifactSet>
+        </configuration>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+
       <plugin>
         <groupId>org.scala-tools</groupId>
         <artifactId>maven-scala-plugin</artifactId>

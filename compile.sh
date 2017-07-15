@@ -35,14 +35,15 @@ fi
 MVN_CMD="mvn"
 
 if [[ $CUDAVER != 0 ]]; then
-  MVN_ARGS="-P$CUDAVER -Dmaven.compiler.showWarnings=true -Dmaven.compiler.showDeprecation=true"
+  # MVN_ARGS="-P$CUDAVER -Dmaven.compiler.showWarnings=true -Dmaven.compiler.showDeprecation=true"
+  MVN_ARGS=" -Dmaven.compiler.showWarnings=true -Dmaven.compiler.showDeprecation=true"
 else
   MVN_ARGS="-Dmaven.compiler.showWarnings=true -Dmaven.compiler.showDeprecation=true"
 fi
 
 echo "Executing :: $MVN_CMD $MVN_ARGS -DskipTests $@ clean install "
 
-$MVN_CMD -T8 -q $MVN_ARGS -DskipTests $@ clean install 2>&1 | tee ~/compile.txt
+$MVN_CMD -T8 $MVN_ARGS -DskipTests $@ clean install 2>&1 | tee ~/compile.txt
 
 # ./utils/embed.sh -d  gpu-enabler_2.11-1.0.0.jar
 

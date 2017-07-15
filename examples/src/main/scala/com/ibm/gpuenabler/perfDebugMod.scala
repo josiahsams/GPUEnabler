@@ -3,30 +3,44 @@ package com.ibm.gpuenabler
 import com.ibm.gpuenabler.CUDARDDImplicits._
 import com.ibm.gpuenabler.CUDADSImplicits._
 
-import jcuda.Pointer
+import jcuda.jcublas.JCublas
+import jcuda.{Pointer, Sizeof}
 import org.apache.spark.SparkEnv
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.SparkConf
 
-
-trait GPUFunc {
-  def run(args: Array[AnyRef])
-}
-
-class malMul extends GPUFunc{
+class malMul {
   def run(args: Array[AnyRef]): Unit = {
 
     println("No of args " + args.length)
-    args(0) match {
-      case ptr if ptr.isInstanceOf[Pointer] => println("Pointer 1  is called")
-      case _ => println("Incorrect Args")
+    val n = args(0) match {
+      case ptr if ptr.isInstanceOf[Int] => ptr.asInstanceOf[Int]
+      case _ => 0
     }
-    args(1) match {
-      case ptr if ptr.isInstanceOf[Pointer] => println("Pointer 2 is called")
-      case _ => println("Incorrect Argument")
+    val d_A1 = args(1) match {
+      case ptr if ptr.isInstanceOf[Pointer] => ptr.asInstanceOf[Pointer]
+      case _ => null
     }
+    val d_B1 = args(2) match {
+      case ptr if ptr.isInstanceOf[Pointer] => ptr.asInstanceOf[Pointer]
+      case _ => null
+    }
+    val d_C1 = args(3) match {
+      case ptr if ptr.isInstanceOf[Pointer] => ptr.asInstanceOf[Pointer]
+      case _ => null
+    }
+
+    val alpha = 0.3f
+    val beta = 0.7f
+    val nn = Math.sqrt(n.toDouble).toInt
+
+    JCublas.cublasSgemm(
+      'n', 'n', nn, nn, nn, alpha, d_A1, n, d_B1, nn, beta, d_C1, nn)
+
   }
 }
+
+case class Points(x: Float, y: Float)
 
 object perfDebugMod {
   def timeit(msg: String, code: => Any): Any ={
@@ -39,7 +53,7 @@ object perfDebugMod {
   def main(args : Array[String]): Unit = {
 
     val masterURL = if (args.length > 0) args(0) else "local[*]"
-    val n: Long = if (args.length > 1) args(1).toLong else 10L
+    val n: Long = if (args.length > 1) args(1).toLong else 9L
     // val n: Long = if (args.length > 1) args(1).toLong else 1000000L
     // val part = if (args.length > 2) args(2).toInt else 16
     val part = if (args.length > 2) args(2).toInt else 1
@@ -49,15 +63,15 @@ object perfDebugMod {
     import spark.implicits._
 
     val sc = spark.sparkContext
-    val ptxURL1 = ""
+    val ptxURL1 = "com.ibm.gpuenabler.malMul"
 
     val dsmapFunction = DSCUDAFunction(
-      "com.ibm.gpuenabler.malMul.run",
-      Array("value"),
+      "run",
+      Array("x", "y"),
       Array("value"),
       ptxURL1)
 
-    val rd = spark.range(1, n+1, 1, part).cache()
+    val rd = spark.range(1, n+1, 1, part).map(x=> Points(x.toFloat,x.toFloat)).cache()
     rd.count()
 
     val data = rd.cacheGpu(true)
@@ -65,7 +79,7 @@ object perfDebugMod {
     // data.loadGpu()
 
     timeit("DS: All cached", {
-      val mapDS = data.mapExtFunc(2 * _, dsmapFunction).cacheGpu()
+      val mapDS = data.mapExtFunc(_.x, dsmapFunction).cacheGpu()
       mapDS.collect().foreach(println)
       // val output = mapDS.reduceExtFunc(_ + _, dsreduceFunction)
       //mapDS.unCacheGpu()

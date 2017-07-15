@@ -304,6 +304,17 @@ object JCUDACodeGen extends _Logging {
         ""
     }
 
+    // Wrap the device variable for creating kernel parameters
+    codeStmt += "kernel-param-mod" -> {
+      if(is(GPUINPUT) || is(GPUOUTPUT) || is(CONST))
+        if (!is(CONST) || length != -1)
+          s",$deviceVariableName\n"
+        else  // Directly pass the constant values for primitives.
+          s",(new ${javaType}[]{(${ctx.boxedType(dataType)})refs[$colName]})\n"
+      else
+        ""
+    }
+
     // Copy Data from device to host memory; only for non-GPU only cached memory
     codeStmt += "memcpyD2H" -> {
       // TODO : Evaluate for performance;
@@ -1132,12 +1143,11 @@ object JCUDACodeGen extends _Logging {
           if (cf.funcName != "") {
             s"""
                |  Object[] kernelParameters = {
-               |    Pointer.to(new int[]{numElements})
-               |    ${getStmt(variables, List("kernel-param"), "")}
+               |    numElements
+               |    ${getStmt(variables, List("kernel-param-mod"), "")}
                |  };
-               |  String inputStr = "${cf.funcName}";
-               |  String methodName = inputStr.substring(inputStr.lastIndexOf(".")+1);
-               |  String className = inputStr.substring(0, inputStr.length() - methodName.length() -1 );
+               |  String methodName = "${cf.funcName}";
+               |  String className = "${cf.resource}";
                |  System.out.println("Invoke method: " + methodName + " in class " + className);
                |
                |  // Call the kernel function.
@@ -1181,7 +1191,7 @@ object JCUDACodeGen extends _Logging {
                """.stripMargin
         } else ""
       }
-         |
+         |      cuCtxSynchronize();
          |        ${getStmt(variables,List("memcpyD2H"),"")}
          |        cuCtxSynchronize();
          |        // Rewind buffer for read for GPUINPUT & GPUOUTPUT

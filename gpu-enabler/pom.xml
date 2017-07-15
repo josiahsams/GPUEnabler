@@ -126,7 +126,7 @@
     <dependency>
       <groupId>org.mystic</groupId>
       <artifactId>mavenized-jcuda</artifactId>
-      <version>0.1.2</version>
+      <version>0.8.0</version>
     </dependency>
     <dependency>
       <groupId>org.scala-lang</groupId>
@@ -266,16 +266,13 @@
                 <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
                   <resource>lib/libJCudaRuntime-${jcuda.lib.suffix}.${jcuda.lib.ext}</resource>
                   <file>${project.build.directory}/lib/libJCudaRuntime-${jcuda.lib.suffix}.${jcuda.lib.ext}</file>
-                  <!--file>${project.build.directory}/lib/libJCudaRuntime-linux-ppc_64.so</file -->
-                  <!--resource>lib/libJCudaRuntime-linux-ppc_64.so</resource>
-                  <file>${project.build.directory}/lib/JCudaRuntime-native-linux-ppc_64.so</file -->
                 </transformer>
               </transformers>
           <artifactSet>
              <includes>
                <!-- include>org.jcuda:jcuda</include -->
                <include>org.mystic:mavenized-jcuda</include>
-               <include>jcuda:**</include>
+               <include>jcuda:*:**</include>
              </includes>
             <excludes>
               <exclude>jcuda:*:so:*</exclude>
