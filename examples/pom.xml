@@ -32,6 +32,7 @@
   <packaging>jar</packaging>
   <properties>
     <sbt.project.name>examples</sbt.project.name>
+                <libJ.version>linux-ppc_64</libJ.version>
   </properties>
   <name>GPU Enabler Examples</name>
 
@@ -41,6 +42,11 @@
       <name>Scala-Tools Maven2 Repository</name>
       <url>http://scala-tools.org/repo-releases</url>
     </repository>
+        <repository>
+            <id>jcuda.local</id>
+            <name>JCuda</name>
+            <url>file:${project.basedir}/../mavenized-jcuda/repo</url>
+        </repository>
   </repositories>
 
   <pluginRepositories>
@@ -114,35 +120,40 @@
           </execution>
         </executions>
       </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-dependency-plugin</artifactId>
-        <version>2.10</version>
-        <executions>
-          <execution>
-            <id>copy-dependencies</id>
-            <phase>prepare-package</phase>
-            <goals>
-              <goal>copy-dependencies</goal>
-            </goals>
-            <configuration>
-              <includeArtifactIds>jcublas</includeArtifactIds>
-              <outputDirectory>${project.build.directory}/lib/</outputDirectory>
-              <stripVersion>true</stripVersion>
-              <overWrite>true</overWrite>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
+<plugin>
+  <groupId>org.apache.maven.plugins</groupId>
+  <artifactId>maven-dependency-plugin</artifactId>
+  <executions>
+    <execution>
+      <id>unpack</id>
+      <phase>package</phase>
+      <goals>
+        <goal>unpack</goal>
+      </goals>
+      <configuration>
+        <artifactItems>
+          <artifactItem>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcublas-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${libJ.version}</classifier>
+            <type>jar</type>
+            <overWrite>true</overWrite>
+            <outputDirectory>${project.build.directory}</outputDirectory>
+          </artifactItem>
+        </artifactItems>
+      </configuration>
+    </execution>
+  </executions>
+</plugin>
      <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
-        <version>2.4.3</version>
+        <version>3.0.0</version>
         <configuration>
           <shadedArtifactAttached>false</shadedArtifactAttached>
           <artifactSet>
           <includes>
-            <!--include>org.jcuda:jcublas:**</include -->
             <include>com.ibm:gpu-enabler_2.11</include>
           </includes>
           </artifactSet>

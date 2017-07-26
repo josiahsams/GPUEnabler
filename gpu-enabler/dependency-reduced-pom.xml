@@ -33,6 +33,31 @@
       </plugin>
       <plugin>
         <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>unpack</id>
+            <phase>package</phase>
+            <goals>
+              <goal>unpack</goal>
+            </goals>
+            <configuration>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcublas-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${libJ.version}</classifier>
+                  <type>jar</type>
+                  <overWrite>true</overWrite>
+                  <outputDirectory>${project.build.directory}</outputDirectory>
+                </artifactItem>
+              </artifactItems>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <artifactId>maven-dependency-plugin</artifactId>
         <version>2.10</version>
         <executions>
           <execution>
@@ -114,6 +139,14 @@
             <transformer>
               <resource>lib/libJCudaRuntime-${jcuda.lib.suffix}.${jcuda.lib.ext}</resource>
               <file>${project.build.directory}/lib/libJCudaRuntime-${jcuda.lib.suffix}.${jcuda.lib.ext}</file>
+            </transformer>
+            <transformer>
+              <resource>libJCublas-${libJ.version}.${jcuda.lib.ext}</resource>
+              <file>${project.build.directory}/lib/libJCublas-${jcuda.version}-${libJ.version}.${jcuda.lib.ext}</file>
+            </transformer>
+            <transformer>
+              <resource>libJCublas2-${libJ.version}.${jcuda.lib.ext}</resource>
+              <file>${project.build.directory}/lib/libJCublas2-${jcuda.version}-${libJ.version}.${jcuda.lib.ext}</file>
             </transformer>
           </transformers>
           <artifactSet>
@@ -276,6 +309,11 @@
       <id>scala-tools.org</id>
       <name>Scala-Tools Maven2 Repository</name>
       <url>http://scala-tools.org/repo-releases</url>
+    </repository>
+    <repository>
+      <id>jcuda.local</id>
+      <name>JCuda</name>
+      <url>file:${project.basedir}/../mavenized-jcuda/repo</url>
     </repository>
   </repositories>
   <pluginRepositories>

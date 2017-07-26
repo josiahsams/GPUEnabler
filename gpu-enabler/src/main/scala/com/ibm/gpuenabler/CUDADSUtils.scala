@@ -73,7 +73,6 @@ case class MAPGPUExec[T, U](cf: DSCUDAFunction, constArgs : Array[Any],
 
       // Generate the JCUDA program to be executed and obtain the iterator object
       val jcudaIterator = JCUDACodeGen.generate(inputSchema,
-      // val jcudaIterator = JCUDACodeGen.generateMod(inputSchema,
                      outputSchema,cf,constArgs, outputArraySizes)
       val list = new mutable.ListBuffer[InternalRow]
 
