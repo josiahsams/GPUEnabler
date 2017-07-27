@@ -33,6 +33,7 @@ class malMul {
     val alpha = 0.3f
     val beta = 0.7f
     val nn = Math.sqrt(n.toDouble).toInt
+//    JCublas.cublasInit()
 
     JCublas.cublasSgemm(
       'n', 'n', nn, nn, nn, alpha, d_A1, n, d_B1, nn, beta, d_C1, nn)

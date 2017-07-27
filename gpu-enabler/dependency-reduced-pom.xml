@@ -20,7 +20,7 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <version>2.19.1</version>
         <configuration>
-          <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms8G -Xmx10G -Xmn7G</argLine>
+          <argLine>-Xms8G -Xmx10G -Xmn7G</argLine>
         </configuration>
       </plugin>
       <plugin>
@@ -45,6 +45,26 @@
                 <artifactItem>
                   <groupId>jcuda</groupId>
                   <artifactId>jcublas-natives</artifactId>
+                  <version>${jcuda.version}</version>
+                  <classifier>${libJ.version}</classifier>
+                  <type>jar</type>
+                  <overWrite>true</overWrite>
+                  <outputDirectory>${project.build.directory}</outputDirectory>
+                </artifactItem>
+              </artifactItems>
+            </configuration>
+          </execution>
+          <execution>
+            <id>unpack-jcuda-natives</id>
+            <phase>package</phase>
+            <goals>
+              <goal>unpack</goal>
+            </goals>
+            <configuration>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>jcuda</groupId>
+                  <artifactId>jcuda-natives</artifactId>
                   <version>${jcuda.version}</version>
                   <classifier>${libJ.version}</classifier>
                   <type>jar</type>
@@ -115,7 +135,7 @@
           <junitxml>.</junitxml>
           <forkMode>once</forkMode>
           <filereports>WDF TestSuite.txt</filereports>
-          <argLine>-Djava.library.path=${project.build.directory}/lib/ -Xms12g -Xmx25G -Xmn10G</argLine>
+          <argLine>-Xms12g -Xmx25G -Xmn10G</argLine>
         </configuration>
       </plugin>
       <plugin>
@@ -133,20 +153,20 @@
           <shadedArtifactAttached>false</shadedArtifactAttached>
           <transformers>
             <transformer>
-              <resource>lib/libJCudaDriver-${jcuda.lib.suffix}.${jcuda.lib.ext}</resource>
-              <file>${project.build.directory}/lib/libJCudaDriver-${jcuda.lib.suffix}.${jcuda.lib.ext}</file>
-            </transformer>
-            <transformer>
-              <resource>lib/libJCudaRuntime-${jcuda.lib.suffix}.${jcuda.lib.ext}</resource>
-              <file>${project.build.directory}/lib/libJCudaRuntime-${jcuda.lib.suffix}.${jcuda.lib.ext}</file>
-            </transformer>
-            <transformer>
-              <resource>libJCublas-${libJ.version}.${jcuda.lib.ext}</resource>
+              <resource>lib/libJCublas-${jcuda.version}-${libJ.version}.${jcuda.lib.ext}</resource>
               <file>${project.build.directory}/lib/libJCublas-${jcuda.version}-${libJ.version}.${jcuda.lib.ext}</file>
             </transformer>
             <transformer>
-              <resource>libJCublas2-${libJ.version}.${jcuda.lib.ext}</resource>
+              <resource>lib/libJCublas2-${jcuda.version}-${libJ.version}.${jcuda.lib.ext}</resource>
               <file>${project.build.directory}/lib/libJCublas2-${jcuda.version}-${libJ.version}.${jcuda.lib.ext}</file>
+            </transformer>
+            <transformer>
+              <resource>lib/libJCudaRuntime-${jcuda.version}-${libJ.version}.${jcuda.lib.ext}</resource>
+              <file>${project.build.directory}/lib/libJCudaRuntime-${jcuda.version}-${libJ.version}.${jcuda.lib.ext}</file>
+            </transformer>
+            <transformer>
+              <resource>lib/libJCudaDriver-${jcuda.version}-${libJ.version}.${jcuda.lib.ext}</resource>
+              <file>${project.build.directory}/lib/libJCudaDriver-${jcuda.version}-${libJ.version}.${jcuda.lib.ext}</file>
             </transformer>
           </transformers>
           <artifactSet>
