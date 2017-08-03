@@ -18,13 +18,14 @@
 package org.apache.spark.sql.gpuenabler
 
 import org.apache.spark.sql.Dataset
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{StructType, UserDefinedType}
 import org.apache.spark.internal.Logging
 
 object CUDAUtils {
 
   def DS = Dataset
   type _ds[T] = Dataset[T]
+  type _UserDefinedType[T >: Null] = UserDefinedType[T]
 
   def getLogicalPlan[T](ds: Dataset[T]) = {
     ds.logicalPlan

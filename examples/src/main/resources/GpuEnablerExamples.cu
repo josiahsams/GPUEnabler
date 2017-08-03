@@ -136,13 +136,25 @@ __global__ void multiplyBy2_self(int size, long *inout) {
     }
 }
 
-extern "C"
+
+extern"C"
 // another simple test kernel
 __global__ void multiplyBy2(int size, const long *in, long *out) {
     const int ix = threadIdx.x + blockIdx.x * blockDim.x;
 
     if (ix < size) {
         out[ix] = in[ix] * 2;
+    }
+}
+
+
+extern"C"
+// another simple test kernel
+__global__ void multiplyBy2D(int size, const double *in, double *out, long width) {
+    const int ix = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (ix < size * width) {
+        out[ix] = in[ix] * 2.0;
     }
 }
 

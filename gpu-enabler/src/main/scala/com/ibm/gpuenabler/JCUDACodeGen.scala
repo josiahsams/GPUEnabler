@@ -25,6 +25,7 @@ import org.apache.spark.sql.types._
 import scala.collection.mutable.ArrayBuffer
 import com.google.common.cache.{CacheBuilder, CacheLoader}
 import org.apache.spark.sql.gpuenabler.CUDAUtils._
+import org.apache.spark.mllib.linalg.Vectors
 
 /**
   * Generates bytecode that can load/unload data & modules into GPU and 
@@ -63,6 +64,7 @@ object JCUDACodeGen extends _Logging {
     var boxType: String = ctx.boxedType(dataType)
     var javaType: String = ctx.javaType(dataType)
     var isArray = false
+    var isUDTVector = false
     var arrayType: DataType = _
     var size = ""
     var hostVariableName = ""
@@ -95,11 +97,21 @@ object JCUDACodeGen extends _Logging {
           } else {
             size = s"numElements * Sizeof.${javaType.toUpperCase()} * ${hostVariableName}_colWidth"
           }
-        case _ => 
+        case _ if ctx.isPrimitiveType(javaType) => 
           if (outputSize != 0 && is(GPUOUTPUT)) {
             size = s"$outputSize * Sizeof.${javaType.toUpperCase()}"
           } else {
             size = s"numElements * Sizeof.${javaType.toUpperCase()}"
+          }
+        case udt: _UserDefinedType[_] =>
+          isArray = true
+          isUDTVector = true
+	  javaType = "double"
+	  boxType = "Double"
+          if (outputSize != 0 && is(GPUOUTPUT)) {
+            size = s"$outputSize * Sizeof.DOUBLE * ${hostVariableName}_colWidth"
+          } else {
+            size = s"numElements * Sizeof.DOUBLE * ${hostVariableName}_colWidth"
           }
       }
     }
@@ -149,7 +161,9 @@ object JCUDACodeGen extends _Logging {
                     |    !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")  || ${is(RDDOUTPUT)}) {
                     |  if (r == null && inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) 
                     |   ${hostVariableName}_colWidth = ((CachedGPUMeta)inputCMap.get(blockID+"gpuOutputDevice_${colName}")).colWidth();
-                    |  else
+                    |  else if ($isUDTVector) { 
+                    |   ${hostVariableName}_colWidth = r.getStruct($inSchemaIdx, 6).getArray(3).numElements();
+                    |  } else 
                     |   ${hostVariableName}_colWidth = r.getArray($inSchemaIdx).numElements();
                     |}
                     |""".stripMargin
@@ -214,8 +228,12 @@ object JCUDACodeGen extends _Logging {
         if (isArray)
           s"""
            |if (!((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) {
-           |  $javaType tmp_${colName}[] = r.getArray($inSchemaIdx).to${boxType}Array();
-           |  for(int j = 0; j < gpuInputHost_${colName}_colWidth; j ++)
+           |  $javaType tmp_${colName}[];
+           |  if ($isUDTVector) 
+           |    tmp_${colName} = r.getStruct($inSchemaIdx, 6).getArray(3).toDoubleArray(); // 6 - ((StructType) dataType).size()
+           |  else 
+           |    tmp_${colName} = r.getArray($inSchemaIdx).to${boxType}Array();
+           |  for(int j = 0; j < gpuInputHost_${colName}_colWidth; j ++) 
            |    ${hostVariableName}.put$boxType(tmp_${colName}[j]);
            |} 
         """.stripMargin
@@ -387,13 +405,30 @@ object JCUDACodeGen extends _Logging {
           if(isArray)
             s"""
                |int tmpCursor_${colName} = holder.cursor;
-               |arrayWriter.initialize(holder,${hostVariableName}_colWidth,
-               |  ${dataType.defaultSize});
-               |for(int j=0;j<${hostVariableName}_colWidth;j++)
-               |  arrayWriter.write(j, ${hostVariableName}.get$boxType());
-               |rowWriter.setOffsetAndSize(${outSchemaIdx}, 
-               |  tmpCursor_${colName}, holder.cursor - tmpCursor_${colName});
-               |rowWriter.alignToWords(holder.cursor - tmpCursor_${colName});
+               |if ($isUDTVector) {
+               |  onebyte = 1;
+               |  rowWriter.write(0, onebyte); rowWriter.alignToWords(1);   // Alignment based on VectorUDT
+               |  rowWriter.setNullAt(1); rowWriter.alignToWords(4);
+               |  rowWriter.setNullAt(2); rowWriter.alignToWords(8);
+               |
+               |  tmpCursor_${colName} = holder.cursor;
+               |  arrayWriter.initialize(holder,${hostVariableName}_colWidth, 8);  // Vector hold only Double datatype - 8 in size
+               |  for(int j=0;j<${hostVariableName}_colWidth;j++)
+               |    arrayWriter.write(j, ${hostVariableName}.get$boxType());
+               |
+               |  rowWriter.setOffsetAndSize(3, tmpCursor_${colName}, holder.cursor - tmpCursor_${colName});
+               |  rowWriter.alignToWords(holder.cursor - tmpCursor_${colName});
+               |
+               |} else {
+               |  arrayWriter.initialize(holder,${hostVariableName}_colWidth,
+               |    ${dataType.defaultSize});
+               |  for(int j=0;j<${hostVariableName}_colWidth;j++)
+               |    arrayWriter.write(j, ${hostVariableName}.get$boxType());
+               |
+               |  rowWriter.setOffsetAndSize(${outSchemaIdx}, 
+               |    tmpCursor_${colName}, holder.cursor - tmpCursor_${colName});
+               |  rowWriter.alignToWords(holder.cursor - tmpCursor_${colName});
+               |}
             """.stripMargin
           else
             s"rowWriter.write(${outSchemaIdx},${hostVariableName}.get$boxType());\n"
@@ -647,6 +682,7 @@ object JCUDACodeGen extends _Logging {
         |import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder;
         |import org.apache.spark.sql.Encoder;
         |import org.apache.spark.sql.types.StructType;
+        |import org.apache.spark.sql.catalyst.expressions.UnsafeArrayData;
         |
         |import java.nio.*;
         |import java.util.Iterator;
@@ -689,6 +725,7 @@ object JCUDACodeGen extends _Logging {
         |    private Map<String, CachedGPUMeta> inputCMap;
         |    private Map<String, CachedGPUMeta> outputCMap;
         |    private Encoder<T> inpEnc;
+        |    private byte onebyte = 1; // 1 - Dense; 0 - Sparse Vectors (UDT)
         |
         |    private int[][] blockSizeX;
         |    private int[][] gridSizeX;
