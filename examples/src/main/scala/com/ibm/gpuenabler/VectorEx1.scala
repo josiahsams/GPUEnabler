@@ -49,5 +49,13 @@ object VectorEx1 {
 	Array(5),
 	outputArraySizes = Array(5)).collect().foreach(println)
 
+    val inputDS1 = spark.range(0, 10, 1, 1).map(x => VectorDataPoint(Vectors.sparse(10, Array(1,5), Array(1.1, 2.2)))).cache
+    inputDS1.collect().foreach(println)
+    inputDS1.printSchema()
+
+    inputDS1.mapExtFunc((x : VectorDataPoint) => x,
+        dsmapFunction,
+        Array(10),
+        outputArraySizes = Array(10)).collect().foreach(println)
   }
 }

@@ -37,6 +37,7 @@ object JCUDACodeGen extends _Logging {
   val GPUOUTPUT = 2
   val RDDOUTPUT = 4
   val CONST     = 8
+  var numVectorCols = 0
 
   case class Variable(colName:String,
                       varType : Int,
@@ -108,6 +109,7 @@ object JCUDACodeGen extends _Logging {
           isUDTVector = true
 	  javaType = "double"
 	  boxType = "Double"
+          if (is(GPUOUTPUT)) numVectorCols += 1
           if (outputSize != 0 && is(GPUOUTPUT)) {
             size = s"$outputSize * Sizeof.DOUBLE * ${hostVariableName}_colWidth"
           } else {
@@ -125,6 +127,7 @@ object JCUDACodeGen extends _Logging {
         s"""
          |private ByteBuffer $hostVariableName;
          |private CUdeviceptr pinMemPtr_$colName;
+         |private int ${hostVariableName}_vectorType = 0;
          |${if(isArray) s"private int ${hostVariableName}_colWidth;" else ""}
            """.stripMargin
       }
@@ -161,14 +164,23 @@ object JCUDACodeGen extends _Logging {
                     |    !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")  || ${is(RDDOUTPUT)}) {
                     |  if (r == null && inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) 
                     |   ${hostVariableName}_colWidth = ((CachedGPUMeta)inputCMap.get(blockID+"gpuOutputDevice_${colName}")).colWidth();
-                    |  else if ($isUDTVector) { 
-                    |   ${hostVariableName}_colWidth = r.getStruct($inSchemaIdx, 6).getArray(3).numElements();
+                    |  else if ($isUDTVector) {  
+                    |   if (r.getStruct($inSchemaIdx, 4).getByte(0) == (byte)0x0) {
+                    |     ${hostVariableName}_vectorType = SPARSE;
+                    |     ${hostVariableName}_colWidth = r.getStruct($inSchemaIdx, 4).getInt(1);
+                    |   } else {
+                    |     ${hostVariableName}_vectorType = DENSE;
+                    |     ${hostVariableName}_colWidth = r.getStruct($inSchemaIdx, 4).getArray(3).numElements();
+                    |   }
                     |  } else 
                     |   ${hostVariableName}_colWidth = r.getArray($inSchemaIdx).numElements();
                     |}
                     |""".stripMargin
                  else
-                  s"${hostVariableName}_colWidth = $length;"
+                  s"""
+                    |${hostVariableName}_colWidth = $length; 
+                    |${hostVariableName}_vectorType = ${hostVariableName.replace("Output", "Input").replace("_out_", "_in_")}_vectorType;
+                    |""".stripMargin
                }
                else ""
             }
@@ -229,12 +241,26 @@ object JCUDACodeGen extends _Logging {
           s"""
            |if (!((cached & 2) > 0) || !inputCMap.containsKey(blockID+"gpuOutputDevice_${colName}")) {
            |  $javaType tmp_${colName}[];
+           |  int index_${colName}[];
            |  if ($isUDTVector) 
-           |    tmp_${colName} = r.getStruct($inSchemaIdx, 6).getArray(3).toDoubleArray(); // 6 - ((StructType) dataType).size()
+           |    tmp_${colName} = r.getStruct($inSchemaIdx, 4).getArray(3).toDoubleArray(); // 6 - ((StructType) dataType).size()
            |  else 
            |    tmp_${colName} = r.getArray($inSchemaIdx).to${boxType}Array();
-           |  for(int j = 0; j < gpuInputHost_${colName}_colWidth; j ++) 
-           |    ${hostVariableName}.put$boxType(tmp_${colName}[j]);
+           |      
+           |  if (${hostVariableName}_vectorType != SPARSE)  {
+           |    for(int j = 0; j < gpuInputHost_${colName}_colWidth; j++) 
+           |      ${hostVariableName}.put$boxType(tmp_${colName}[j]);
+           |  } else {
+           |    index_${colName} = r.getStruct($inSchemaIdx, 4).getArray(2).toIntArray(); 
+           |    int k = 0;
+           |    int sparse_num = r.getStruct($inSchemaIdx, 4).getArray(2).numElements();
+           |    for(int j = 0; j < gpuInputHost_${colName}_colWidth; j++)  {
+           |      if (k < sparse_num && index_${colName}[k] == j ) {
+           |        ${hostVariableName}.put$boxType(tmp_${colName}[k]);
+           |        k++;
+           |      } else ${hostVariableName}.put$boxType(0);
+           |    }
+           |  }
            |} 
         """.stripMargin
         else
@@ -406,19 +432,48 @@ object JCUDACodeGen extends _Logging {
             s"""
                |int tmpCursor_${colName} = holder.cursor;
                |if ($isUDTVector) {
-               |  onebyte = 1;
-               |  rowWriter.write(0, onebyte); rowWriter.alignToWords(1);   // Alignment based on VectorUDT
-               |  rowWriter.setNullAt(1); rowWriter.alignToWords(4);
-               |  rowWriter.setNullAt(2); rowWriter.alignToWords(8);
+               |  if (${hostVariableName}_vectorType == SPARSE ) {
+               |    onebyte = 0; 
+               |    int k = 0;
+               |    double []tmp_values = new double[${hostVariableName}_colWidth];
+               |    int []tmp_indices = new int[${hostVariableName}_colWidth];
+               |    
+               |    rowWriter.write(${outSchemaIdx}, onebyte);
+               |    rowWriter.write(${outSchemaIdx}+1, (int)${hostVariableName}_colWidth);
+               |    tmpCursor_${colName} = holder.cursor;
+               |    for(int j=0;j<${hostVariableName}_colWidth;j++) {
+               |      tmp_values[k] = ${hostVariableName}.get$boxType();
+               |      tmp_indices[k] = j;
+               |      if (tmp_values[k] != 0.0) k++;
+               |    }
+               |    arrayWriter.initialize(holder,k, 4);  // Indices hold only int datatype - 4 in size
+               |    for(int j=0;j<k;j++)
+               |      arrayWriter.write(j, tmp_indices[j]);
+               | 
+               |    rowWriter.setOffsetAndSize(${outSchemaIdx}+2, tmpCursor_${colName}, holder.cursor - tmpCursor_${colName});
+               |    rowWriter.alignToWords(holder.cursor - tmpCursor_${colName});
+               |  
+               |    tmpCursor_${colName} = holder.cursor;
+               |    arrayWriter.initialize(holder,k, 8);  // Vector hold only Double datatype - 8 in size
+               |    for(int j=0;j<k;j++)
+               |      arrayWriter.write(j, tmp_values[j]);
+               |  
+               |    rowWriter.setOffsetAndSize(${outSchemaIdx}+3, tmpCursor_${colName}, holder.cursor - tmpCursor_${colName});
+               |    rowWriter.alignToWords(holder.cursor - tmpCursor_${colName});
+               |  } else if (${hostVariableName}_vectorType == DENSE ) {
+               |    onebyte = 1;
+               |    rowWriter.write(${outSchemaIdx}, onebyte);
+               |    rowWriter.setNullAt(${outSchemaIdx}+1);
+               |    rowWriter.setNullAt(${outSchemaIdx}+2);
                |
-               |  tmpCursor_${colName} = holder.cursor;
-               |  arrayWriter.initialize(holder,${hostVariableName}_colWidth, 8);  // Vector hold only Double datatype - 8 in size
-               |  for(int j=0;j<${hostVariableName}_colWidth;j++)
-               |    arrayWriter.write(j, ${hostVariableName}.get$boxType());
+               |    tmpCursor_${colName} = holder.cursor;
+               |    arrayWriter.initialize(holder,${hostVariableName}_colWidth, 8);  // Vector hold only Double datatype - 8 in size
+               |    for(int j=0;j<${hostVariableName}_colWidth;j++)
+               |      arrayWriter.write(j, ${hostVariableName}.get$boxType());
                |
-               |  rowWriter.setOffsetAndSize(3, tmpCursor_${colName}, holder.cursor - tmpCursor_${colName});
-               |  rowWriter.alignToWords(holder.cursor - tmpCursor_${colName});
-               |
+               |    rowWriter.setOffsetAndSize(${outSchemaIdx}+3, tmpCursor_${colName}, holder.cursor - tmpCursor_${colName});
+               |    rowWriter.alignToWords(holder.cursor - tmpCursor_${colName});
+               |  }
                |} else {
                |  arrayWriter.initialize(holder,${hostVariableName}_colWidth,
                |    ${dataType.defaultSize});
@@ -460,6 +515,7 @@ object JCUDACodeGen extends _Logging {
 	      outputArraySizes: Seq[Int], ctx : CodegenContext): Array[Variable] = {
     // columns to be copied from inputRow to outputRow without gpu computation.
     val variables = ArrayBuffer.empty[Variable]
+    numVectorCols = 0
 
     def findSchemaIndex(schema: StructType, colName: String) =
       getAttributes(schema).indexWhere(a => a.name.equalsIgnoreCase(colName))
@@ -715,6 +771,8 @@ object JCUDACodeGen extends _Logging {
         |    private Object refs[];
         |    private boolean own = true;
         |    private int colWidth = 1;
+        |    private int DENSE = 1;
+        |    private int SPARSE = 2;
         |
         |    // cached : 0 - NoCache;
         |    // 1 - DS is cached; Hold GPU results in GPU
@@ -731,6 +789,7 @@ object JCUDACodeGen extends _Logging {
         |    private int[][] gridSizeX;
         |    private int stages;
         |    private int sharedMemory = 0;
+        |    private int numFields = 0;
         |
         |    ${getStmt(variables,List("declareHost","declareDevice"),"\n")}
         |    
@@ -744,11 +803,12 @@ object JCUDACodeGen extends _Logging {
         |    }    
         |  
         |    public JCUDAIteratorImpl() {
-        |        result = new UnsafeRow(${getAttributes(outputSchema).length});
+        |        if ($numVectorCols > 0) numFields = ${getAttributes(outputSchema).length} + ($numVectorCols * 4) - 1;
+        |        else numFields = ${getAttributes(outputSchema).length};
+        |        result = new UnsafeRow(numFields);
         |        this.holder = new org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder(result, 32);
         |        this.rowWriter =
-        |           new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(holder, 
-        |             ${getAttributes(outputSchema).length});
+        |           new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(holder, numFields);
         |        arrayWriter = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeArrayWriter();
         |    }
         |
