@@ -36,7 +36,7 @@ class malMul {
 //    JCublas.cublasInit()
 
     JCublas.cublasSgemm(
-      'n', 'n', nn, nn, nn, alpha, d_A1, n, d_B1, nn, beta, d_C1, nn)
+      'n', 'n', nn, nn, nn, alpha, d_A1, nn, d_B1, nn, beta, d_C1, nn)
 
   }
 }
@@ -44,6 +44,24 @@ class malMul {
 case class Points(x: Float, y: Float)
 
 object perfDebugMod {
+
+  def sgemm(nn: Int, A: Array[Float], B: Array[Float], C: Array[Float]) = {
+
+    val n = Math.sqrt(nn.toDouble).toInt
+    val alpha = 0.3f
+    val beta = 0.7f
+    (0 until n ).foreach (i => {
+      (0 until n ).foreach(j => {
+        var prod: Float = 0
+        (0 until n ). foreach(k => {
+          prod += A(k * n + i) * B(j*n +k)
+        })
+        C(j * n + i) = alpha * prod + beta * C(j * n + i)
+      })
+    })
+    C
+  }
+
   def timeit(msg: String, code: => Any): Any ={
     val now1 = System.nanoTime
     code
@@ -79,13 +97,19 @@ object perfDebugMod {
     // Load the data to GPU
     // data.loadGpu()
 
-    timeit("DS: All cached", {
+    timeit("cublasSgemm", {
       val mapDS = data.mapExtFunc(_.x, dsmapFunction).cacheGpu()
       mapDS.collect().foreach(println)
-      // val output = mapDS.reduceExtFunc(_ + _, dsreduceFunction)
-      //mapDS.unCacheGpu()
-      // println("Output is " + output)
     })
+
+   println("Expected: ")
+   println()
+    val nn: Int = n.toInt
+    val A = Array.tabulate[Float](nn)(i => i.toFloat + 1.0f)
+    val B = Array.tabulate[Float](nn)(i => i.toFloat + 1.0f)
+    val C = Array.fill[Float](nn)(0)
+    sgemm(nn, A, B, C).foreach(println)
+
   }
 }
 
