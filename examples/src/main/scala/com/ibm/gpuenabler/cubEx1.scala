@@ -28,7 +28,7 @@ object cubEx1 {
     val ptxURL1 = "/cubKernel.ptx"
 
     val threads = 1024
-    val blocks = ((num + threads- 1) / threads)
+    val blocks = (((num/part) + threads- 1) / threads)
 
     val sched_threads = 1024/16; // Tile Size
 
