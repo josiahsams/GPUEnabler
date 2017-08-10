@@ -524,7 +524,7 @@ object JCUDACodeGen extends _Logging {
       x => {
         val inIdx = findSchemaIndex(inputSchema, x)
         assume(inIdx >= 0, s"$inIdx $x not available in input Schema")
-        val outIdx = findSchemaIndex(outputSchema, x)
+        val outIdx = findSchemaIndex(outputSchema, x) + (numVectorCols * 3)
         val outCol = cf._outputColumnsOrder.exists(_.equals(x))
         variables += Variable("in_"+x,
           GPUINPUT | {
@@ -543,7 +543,7 @@ object JCUDACodeGen extends _Logging {
     if (outputArraySizes.isEmpty) {
       cf._outputColumnsOrder.foreach {
         x => {
-            val outIdx = findSchemaIndex(outputSchema, x)
+            val outIdx = findSchemaIndex(outputSchema, x) + (numVectorCols * 3)
 
             // GPU OUTPUT variables must be in the output -- TODO may need to relax
             assume(outIdx >= 0)
@@ -561,7 +561,7 @@ object JCUDACodeGen extends _Logging {
     } else {
       assert(cf._outputColumnsOrder.length == outputArraySizes.length)
       cf._outputColumnsOrder.zip(outputArraySizes).foreach(col => {
-	      val outIdx = findSchemaIndex(outputSchema, col._1)
+	      val outIdx = findSchemaIndex(outputSchema, col._1) + (numVectorCols * 3)
 
           // GPU OUTPUT variables must be in the output -- TODO may need to relax
           assume(outIdx >= 0)
@@ -619,7 +619,7 @@ object JCUDACodeGen extends _Logging {
             RDDOUTPUT,
             x.dataType,
             findSchemaIndex(inputSchema,x.name),
-            findSchemaIndex(outputSchema,x.name),
+            findSchemaIndex(outputSchema,x.name) + (numVectorCols * 3),
             -1, cf.outputSize.getOrElse(0),
             ctx
           )
@@ -803,8 +803,8 @@ object JCUDACodeGen extends _Logging {
         |    }    
         |  
         |    public JCUDAIteratorImpl() {
-        |        if ($numVectorCols > 0) numFields = ${getAttributes(outputSchema).length} + ($numVectorCols * 4) - 1;
-        |        else numFields = ${getAttributes(outputSchema).length};
+        |        // Vector dataTypes take 3 extra fields; take into consideration for output row generation.
+        |        numFields = ${getAttributes(outputSchema).length} + ($numVectorCols * 3);
         |        result = new UnsafeRow(numFields);
         |        this.holder = new org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder(result, 32);
         |        this.rowWriter =
