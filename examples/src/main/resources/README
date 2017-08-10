@@ -1,0 +1,12 @@
+1. To compile cubKernel.cu file, download the cub library from URL: 
+
+wget https://github.com/NVlabs/cub/archive/1.7.0.zip
+
+2. Run the following command to compile,
+
+nvcc -ccbin g++ -m64 -O3 -Xcompiler -Wall --std=c++11 -g -I ./cub-1.7.0 -arch=sm_35 -Xptxas="-v" -ptx -o cubKernel.ptx -c cubKernel.cu
+
+Note: Make sure the -I points to cub library extracted path.
+
+
+
