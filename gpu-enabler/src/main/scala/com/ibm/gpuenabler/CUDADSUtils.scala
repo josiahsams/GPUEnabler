@@ -299,27 +299,32 @@ case class DSCUDAFunction(
   *
   */
 object CUDADSImplicits {
+  val cachedPartitionSizes = new mutable.HashMap[String, Broadcast[Map[Int, Int]]]
   implicit class CUDADSFuncs[T: Encoder](ds: _ds[T]) extends Serializable {
-  /** 
-    * getPartSizes: Helper routine to get Partition Size & add broadcast it.
-    * Getting the partition size right before MAPGPU operation 
-    * improves performance.
-    */
+    /**
+      * getPartSizes: Helper routine to get Partition Size & add broadcast it.
+      * Getting the partition size right before MAPGPU operation
+      * improves performance.
+      */
     def getPartSizes: Broadcast[Map[Int, Int]] = {
-      val execPlan = ds.queryExecution.executedPlan
-      val logPlan = ds.queryExecution.optimizedPlan match {
+      val logPlan = ds.queryExecution.logical match {
         case SerializeFromObject(_, lp) => lp
-        case _ => ds.queryExecution.optimizedPlan
+        case _ => ds.queryExecution.logical
       }
 
       val partSizes: Broadcast[Map[Int, Int]] = logPlan match {
-        case MAPGPU(_, _, _, partSize, _, _, _, _) => 
+        case MAPGPU(_, _, _, partSize, _, _, _, _) =>
           partSize
         case _ =>
-          val partSize: Map[Int, Int] = execPlan.execute().mapPartitionsWithIndex {
-            (partNum, iter) => Iterator(Map(partNum -> iter.length))
-          }.reduce(_ ++ _)
-          ds.sparkSession.sparkContext.broadcast(partSize)
+          val execPlan: SparkPlan = ds.queryExecution.executedPlan
+          cachedPartitionSizes.getOrElseUpdate(md5HashObj(execPlan), {
+            val partSize: Map[Int, Int] = execPlan.execute().mapPartitionsWithIndex {
+              (partNum, iter) => Iterator(Map(partNum -> iter.length))
+            }.reduce(_ ++ _)
+            val broadcastpartsize = ds.sparkSession.sparkContext.broadcast(partSize)
+            cachedPartitionSizes += md5HashObj(execPlan) -> broadcastpartsize
+            broadcastpartsize
+          })
       }
       partSizes
     }
@@ -344,7 +349,6 @@ object CUDADSImplicits {
                           cf: DSCUDAFunction,
                           args: Array[Any] = Array.empty,
                           outputArraySizes: Array[Int] = Array.empty): Dataset[U] =  {
-
       DS[U](ds.sparkSession,
           MAPGPU[T, U](cf, args, outputArraySizes, getPartSizes,
             getLogicalPlan(ds)))
@@ -369,7 +373,6 @@ object CUDADSImplicits {
                           cf: DSCUDAFunction,
                           args: Array[Any] = Array.empty,
                           outputArraySizes: Array[Int] = Array.empty): T =  {
-
       val ds1 = DS[T](ds.sparkSession,
         MAPGPU[T, T](cf, args, outputArraySizes, getPartSizes,
           getLogicalPlan(ds)))

@@ -5,18 +5,21 @@ import java.util.Random
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.{Dataset, SparkSession}
 import com.ibm.gpuenabler.CUDADSImplicits._
+import org.apache.spark.ml.linalg.Vectors
 import scala.collection.mutable
 
 object GpuKMeans {
   case class DataPointKMeans(features: Array[Double])
+  case class DataPointKMeansMod(features: Array[Double], norm: Double )
   case class ClusterIndexes(features: Array[Double], index: Int)
   case class Results(s0: Array[Int], s1: Array[Double], s2: Array[Double])
 
-  def timeit(msg: String, code: => Any): Any ={
+  def timeit[T](msg: String, code: => T): T ={
     val now1 = System.nanoTime
-    code
+    val rc = code
     val ms1 = (System.nanoTime - now1) / 1000000
     println("%s Elapsed time: %d ms".format(msg, ms1))
+    rc
   }
 
   def maxPoints(d: Int, k: Int, part: Int, nGpu: Int): Long = {
@@ -52,26 +55,28 @@ object GpuKMeans {
     Logger.getRootLogger().setLevel(Level.ERROR)
 
     val data: Dataset[DataPointKMeans] = getDataSet(spark, N, d, numSlices)
+    val dataMod: Dataset[DataPointKMeansMod] = getDataSetMod(spark, N, d, numSlices).as[DataPointKMeansMod]
     println("Data Generation Done")
 
     println(" ======= GPU ===========")
 
-    val (centers, cost) = runGpu(data, d, k, iters)
-    // printCenters("Cluster centers:", centers)
+    val (centers, cost) = runGpu(dataMod, d, k, iters, N)
     println(s"Cost: ${cost}")
 
     println(" ======= CPU ===========")
 
-    val (ccenters, ccost) = run(data, d, k, iters)
+    val (ccenters, ccost) = run(dataMod, d, k, iters)
 
     // printCenters("Cluster centers:", ccenters)
     println(s"Cost: ${ccost}")
   }
 
- def runGpu(data: Dataset[DataPointKMeans], d: Int, k: Int,
-          maxIterations: Int): (Array[DataPointKMeans], Double) = {
+ def runGpu(data1: Dataset[DataPointKMeansMod], d: Int, k: Int,
+          maxIterations: Int, N: Long): (Array[DataPointKMeansMod], Double) = {
 
-    import data.sparkSession.implicits._
+    import data1.sparkSession.implicits._
+    import scala.math._
+    val sc = data1.sparkSession.sparkContext
 
     val epsilon = 0.5
     var changed = true
@@ -84,6 +89,18 @@ object GpuKMeans {
         Array("features"),
         Array("index"),
         ptxURL)
+
+    val threads = 1024
+    val blocks = min((N + threads- 1) / threads, 1024)
+    val dimensions0 = (size: Long, stage: Int) => stage match {
+      case 0 => (blocks.toInt, threads, 1, 1, 1, 1)
+    }
+    val gpuParams0 = gpuParameters(dimensions0, Some(d*k*8))
+    val centroidFnMod = sc.broadcast(DSCUDAFunction(
+        "getClusterCentroidsMod",
+        Array("features", "norm"),
+        Array("index"), 
+        ptxURL, Some((size: Long) => 1), Some(gpuParams0)) )
 
     var limit = 1024
     var modD = Math.min(d, limit)
@@ -103,14 +120,13 @@ object GpuKMeans {
 
     val gpuParams1 = gpuParameters(dimensions1)
 
-    val interFn = DSCUDAFunction(
+    val interFn = sc.broadcast(DSCUDAFunction(
         "calculateIntermediates",
         Array("features", "index"),
         Array("s0", "s1", "s2"),
         ptxURL,
         Some((size: Long) => 1),
-        Some(gpuParams1), outputSize=Some(450))
-
+        Some(gpuParams1), outputSize=Some(450)) )
 
     val dimensions2 = (size: Long, stage: Int) => stage match {
       case 0 => (1, modD, 1, modK, 1, 1)
@@ -118,16 +134,20 @@ object GpuKMeans {
 
     val gpuParams2 = gpuParameters(dimensions2)
 
-        val sumFn = DSCUDAFunction(
+        val sumFn = sc.broadcast(DSCUDAFunction(
         "calculateFinal",
         Array("s0", "s1", "s2"),
         Array("s0", "s1", "s2"),
         ptxURL,
         Some((size: Long) => 1),
-        Some(gpuParams2), outputSize=Some(1))
+        Some(gpuParams2), outputSize=Some(1)) )
 
 
     def func1(p: DataPointKMeans): ClusterIndexes = {
+      ClusterIndexes(p.features, 0)
+    }
+
+    def func1Mod(p: DataPointKMeansMod): ClusterIndexes = {
       ClusterIndexes(p.features, 0)
     }
 
@@ -140,49 +160,70 @@ object GpuKMeans {
         addArr(r1.s1, r2.s1),addArr(r1.s2, r2.s2))
     }
 
-    val means: Array[DataPointKMeans] = data.rdd.takeSample(true, k, 42)
+    val means: Array[DataPointKMeansMod] = data1.rdd.takeSample(true, k, 42)
 
-    data.cacheGpu(true)
+    val data = data1.cacheGpu(true)
     timeit("Data loaded in GPU ", { data.loadGpu() })
-
     var oldMeans = means
+
+    // Warm-Up
+    val oldCentroids = oldMeans.flatMap(p => p.features)
+    val oldCentroids_norm = oldMeans.map(p => p.norm)
+
+    // this gets distributed
+    val centroidIndex = data.mapExtFunc(func1Mod,
+      centroidFnMod.value,
+      Array(oldCentroids, oldCentroids_norm, k, d), outputArraySizes = Array(d)
+    ).cacheGpu(true) 
+
+    val interValues = centroidIndex
+       .mapExtFunc(func2, interFn.value, Array(k, d),
+           outputArraySizes = Array(k, k*d, k*d)).cacheGpu(true)
+
+    var result = interValues
+        .reduceExtFunc(func3, sumFn.value, Array(k, d),
+           outputArraySizes = Array(k, k*d, k*d)) 
+
+    centroidIndex.unCacheGpu
+    interValues.unCacheGpu
 
     timeit("GPU :: ", {
      // while (changed && iteration < maxIterations) {
      while (iteration < maxIterations) {
       val oldCentroids = oldMeans.flatMap(p => p.features)
+      val oldCentroids_norm = oldMeans.map(p => p.norm) 
 
       // this gets distributed
-      val centroidIndex = data.mapExtFunc(func1,
-        centroidFn,
-        Array(oldCentroids, k, d), outputArraySizes = Array(d)
-      ).cacheGpu(true)
+      val centroidIndex = data.mapExtFunc(func1Mod,
+        centroidFnMod.value,
+        Array(oldCentroids, oldCentroids_norm, k, d), outputArraySizes = Array(d)
+      ).cacheGpu(true) 
 
       val interValues = centroidIndex
-          .mapExtFunc(func2, interFn, Array(k, d),
-             outputArraySizes = Array(k, k*d, k*d)).cacheGpu(true)
+         .mapExtFunc(func2, interFn.value, Array(k, d),
+             outputArraySizes = Array(k, k*d, k*d)).cacheGpu(true) 
 
-      val result = interValues
-          .reduceExtFunc(func3, sumFn, Array(k, d),
-             outputArraySizes = Array(k, k*d, k*d))
+      result = interValues
+          .reduceExtFunc(func3, sumFn.value, Array(k, d),
+             outputArraySizes = Array(k, k*d, k*d)) 
 
       centroidIndex.unCacheGpu
-      interValues.unCacheGpu
+      interValues.unCacheGpu 
 
-      val newMeans = getCenters(k, d, result.s0, result.s1)
-
+      val newMeans = getCentersMod(k, d, result.s0, result.s1) 
+/*
       val maxDelta = oldMeans.zip(newMeans)
-        .map(squaredDistance)
-        .max
-
-      cost = getCost(k, d, result.s0, result.s1, result.s2)
-
+        .map(squaredDistanceMod)
+        .max 
       changed = maxDelta > epsilon
+*/
       oldMeans = newMeans
       //println(s"Cost @ iteration ${iteration} is ${cost}")
       iteration += 1
      }
     })
+    
+    cost = getCost(k, d, result.s0, result.s1, result.s2)
     data.unCacheGpu
     println("Finished in " + iteration + " iterations")
     (oldMeans, cost)
@@ -234,9 +275,67 @@ object GpuKMeans {
     }
   }
 
+  def trainMod(means: Array[DataPointKMeansMod], pointItr: Iterator[DataPointKMeansMod]):
+      Iterator[Tuple3[Array[Int], Array[Double], Array[Double]]] = {
+    val d = means(0).features.size
+    val k = means.length
+
+    val s0 = new Array[Int](k)
+    val s1 = new Array[Double](d * k)
+    val s2 = new Array[Double](d * k)
+
+    pointItr.foreach(point => {
+      var bestCluster = 0
+      var bestDistance = Double.PositiveInfinity
+
+      // for (c <- 0 until k) {
+      var c = 0
+      means.foreach { center => 
+        var lowerBoundOfSqDist = center.norm - point.norm
+        lowerBoundOfSqDist = lowerBoundOfSqDist * lowerBoundOfSqDist
+        if (lowerBoundOfSqDist < bestDistance) {
+          val dist = squaredDistance(point.features, center.features)
+
+          if (bestDistance > dist) {
+            bestCluster = c
+            bestDistance = dist
+          }
+        }
+        c += 1
+      }
+
+      s0(bestCluster) += 1
+
+      for (dim <- 0 until d) {
+        var coord = point.features(dim)
+
+        s1(bestCluster * d + dim) += coord
+        s2(bestCluster * d + dim) += coord * coord
+      }
+
+    })
+
+    var flag = true
+
+    new Iterator[Tuple3[Array[Int], Array[Double], Array[Double]]]{
+      override def hasNext: Boolean = flag
+
+      override def next: Tuple3[Array[Int], Array[Double], Array[Double]] = {
+        flag = false
+        (s0, s1, s2)
+      }
+    }
+  }
+
   def getCenters(k: Int, d: Int, s0: Array[Int],
                  s1: Array[Double]): Array[DataPointKMeans] = {
     Array.tabulate(k)(i => DataPointKMeans(Array.tabulate(d)(j => s1(i * d + j) / s0(i).max(1))))
+  }
+
+  def getCentersMod(k: Int, d: Int, s0: Array[Int],
+                 s1: Array[Double]): Array[DataPointKMeansMod] = {
+    val dpt = Array.tabulate(k)(i => DataPointKMeans(Array.tabulate(d)(j => s1(i * d + j) / s0(i).max(1)) ))
+    dpt.map(x => DataPointKMeansMod(x.features, Vectors.norm(Vectors.dense(x.features), 2.0)))
   }
 
   def getCost(k: Int, d: Int, s0: Array[Int], s1: Array[Double], s2: Array[Double]) = {
@@ -253,11 +352,25 @@ object GpuKMeans {
     cost
   }
 
-  def run(data: Dataset[DataPointKMeans], d: Int, k: Int,
-          maxIterations: Int): (Array[DataPointKMeans], Double) = {
+  def getCostMod(k: Int, d: Int, s0: Array[Int], s1: Array[Double]) = {
+    var cost: Double = 0
+
+    for (i <- 0 until d * k) {
+      val mean = i / d
+      val center = s1(i) / s0(mean).max(1)
+
+      // TODO simplify this
+      cost += center * (center * s0(mean) - 2 * s1(i)) + (s1(i) * s1(i))
+    }
+
+    cost
+  }
+
+  def run(data: Dataset[DataPointKMeansMod], d: Int, k: Int,
+          maxIterations: Int): (Array[DataPointKMeansMod], Double) = {
 
     import data.sparkSession.implicits._
-    val means: Array[DataPointKMeans] = data.rdd.takeSample(true, k, 42)
+    val means: Array[DataPointKMeansMod] = data.rdd.takeSample(true, k, 42)
 
     val epsilon = 0.5
     var changed = true
@@ -271,13 +384,13 @@ object GpuKMeans {
      while (iteration < maxIterations) {
 
       // this gets distributed
-      val result = data.mapPartitions(pointItr => train(oldMeans, pointItr)).reduce((x,y) =>
+      val result = data.mapPartitions(pointItr => trainMod(oldMeans, pointItr)).reduce((x,y) =>
         (addArr(x._1, y._1), addArr(x._2, y._2), addArr(x._3, y._3)))
 
-      val newMeans: Array[DataPointKMeans] = getCenters(k, d, result._1, result._2)
+      val newMeans: Array[DataPointKMeansMod] = getCentersMod(k, d, result._1, result._2)
 
       val maxDelta = oldMeans.zip(newMeans)
-        .map(squaredDistance)
+        .map(squaredDistanceMod)
         .max
 
       cost = getCost(k, d, result._1, result._2, result._3)
@@ -302,10 +415,27 @@ object GpuKMeans {
     generatePoint(seed)
   }
 
+  def generateDataMod(seed: Long, N: Long, D: Int, R: Double): DataPointKMeansMod = {
+    val r = new Random(seed)
+    def generatePoint(i: Long): DataPointKMeansMod = {
+      val x = Array.fill(D){r.nextGaussian + i * R}
+      DataPointKMeansMod(x, Vectors.norm(Vectors.dense(x), 2.0))
+    }
+    generatePoint(seed)
+  }
+
   private def getDataSet(spark: SparkSession, N: Long, d: Int, slices: Int): Dataset[DataPointKMeans] = {
     import spark.implicits._
     val R = 0.7  // Scaling factor
     val pointsCached = spark.range(1, N+1, 1, slices).map(i => generateData(i, N, d, R)).cache
+    pointsCached.count()
+    pointsCached
+  }
+
+  private def getDataSetMod(spark: SparkSession, N: Long, d: Int, slices: Int): Dataset[DataPointKMeansMod] = {
+    import spark.implicits._
+    val R = 0.7  // Scaling factor
+    val pointsCached = spark.range(1, N+1, 1, slices).map(i => generateDataMod(i, N, d, R)).cache
     pointsCached.count()
     pointsCached
   }
@@ -334,6 +464,14 @@ object GpuKMeans {
     require(lhs.length == rhs.length, "equal lengths")
 
     lhs.zip(rhs).map { case (x, y) => x + y }
+  }
+
+  def squaredDistanceMod(v1: DataPointKMeansMod, v2: DataPointKMeansMod): Double = {
+    squaredDistance(v1.features, v2.features)
+  }
+
+  def squaredDistanceMod(p: (DataPointKMeansMod, DataPointKMeansMod)): Double = {
+    squaredDistanceMod(p._1, p._2)
   }
 
   def squaredDistance(v1: DataPointKMeans, v2: DataPointKMeans): Double = {
